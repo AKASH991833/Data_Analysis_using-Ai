@@ -1,0 +1,273 @@
+"use client";
+
+import React, { useRef, useState, useCallback } from "react";
+import {
+  BarChart, Bar, LineChart, Line, AreaChart, Area,
+  PieChart, Pie, Cell, ScatterChart, Scatter,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LabelList, Legend,
+} from "recharts";
+import { toPng } from "html-to-image";
+import {
+  Download, Maximize2, Minimize2, BarChart3,
+  TrendingUp, PieChart as PieIcon, ScatterChart as ScatterIcon,
+  Table2, X, Activity, Eye,
+} from "lucide-react";
+
+interface ChartData {
+  type: string;
+  title: string;
+  xKey?: string;
+  yKey?: string;
+  dataKey?: string;
+  data: Record<string, unknown>[];
+}
+
+interface Props {
+  chart: ChartData;
+  height?: number;
+}
+
+const EXCEL_COLORS = [
+  "#4472C4", "#ED7D31", "#A5A5A5", "#FFC000",
+  "#5B9BD5", "#70AD47", "#264478", "#9B57A0",
+  "#636363", "#BF8F00", "#2E75B6", "#2EA02E",
+];
+
+const CHART_TYPES = [
+  { key: "bar", icon: BarChart3, label: "Bar" },
+  { key: "line", icon: TrendingUp, label: "Line" },
+  { key: "area", icon: Activity, label: "Area" },
+  { key: "pie", icon: PieIcon, label: "Pie" },
+  { key: "scatter", icon: ScatterIcon, label: "Scatter" },
+];
+
+export function ExcelChartPro({ chart, height = 320 }: Props) {
+  const chartRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [chartType, setChartType] = useState(chart.type);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [drillDown, setDrillDown] = useState<Record<string, unknown>[] | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  const data = chart.data;
+  const xKey = chart.xKey;
+  const yKey = chart.yKey;
+  const dataKey = chart.dataKey;
+
+  const handleDownload = useCallback(async () => {
+    if (!chartRef.current) return;
+    setDownloading(true);
+    try {
+      const blob = await toPng(chartRef.current, { quality: 0.95, pixelRatio: 2 });
+      const a = document.createElement("a");
+      a.href = blob;
+      a.download = `${chart.title.replace(/\s+/g, "_")}.png`;
+      a.click();
+    } catch {}
+    setDownloading(false);
+  }, [chart.title]);
+
+  const handleFullscreen = useCallback(() => {
+    if (!containerRef.current) return;
+    if (!fullscreen) {
+      containerRef.current.requestFullscreen?.();
+    } else {
+      document.exitFullscreen?.();
+    }
+    setFullscreen(!fullscreen);
+  }, [fullscreen]);
+
+  const handleDrillDown = useCallback((entry: Record<string, unknown> | Record<string, unknown>[]) => {
+    setDrillDown(Array.isArray(entry) ? entry : entry ? [entry] : null);
+  }, []);
+
+  const isPieLike = chartType === "pie";
+  const displayData = isPieLike ? data : data;
+
+  if (displayData.length === 0) {
+    return <p className="text-slate-500 text-xs text-center py-10">No data</p>;
+  }
+
+  return (
+    <div ref={containerRef} className={`relative ${fullscreen ? "fixed inset-0 z-[200] bg-dark-bg p-6" : ""}`}>
+      {/* Toolbar */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1">
+          {CHART_TYPES.map((ct) => {
+            const Icon = ct.icon;
+            return (
+              <button
+                key={ct.key}
+                onClick={() => setChartType(ct.key)}
+                className={`p-1.5 rounded-lg transition-all ${
+                  chartType === ct.key
+                    ? "bg-blue-500/15 text-blue-400"
+                    : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
+                }`}
+                title={ct.label}
+              >
+                <Icon className="w-3.5 h-3.5" />
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-all"
+            title="Download as PNG"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => handleDrillDown(data)}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-all"
+            title="View data"
+          >
+            <Table2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={handleFullscreen}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-all"
+            title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          >
+            {fullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Chart */}
+      <div
+        ref={chartRef}
+        className={`chart-container ${downloading ? "p-4 bg-dark-bg" : ""}`}
+        style={{ height: fullscreen ? "calc(100vh - 120px)" : height }}
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          {chartType === "bar" ? (
+            <BarChart data={displayData}>
+              <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.04)" />
+              <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: "#94a3b8" }} angle={-25} textAnchor="end" height={50} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+              <Tooltip content={<ProTooltip />} />
+              <Bar dataKey={yKey!} radius={[3, 3, 0, 0]} maxBarSize={50}>
+                <LabelList dataKey={yKey!} position="top" style={{ fontSize: 9, fill: "#94a3b8" }} />
+                {displayData.map((_, idx) =>
+                  <Cell key={idx} fill={EXCEL_COLORS[idx % EXCEL_COLORS.length]} />
+                )}
+              </Bar>
+            </BarChart>
+          ) : chartType === "line" ? (
+            <LineChart data={displayData}>
+              <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.04)" />
+              <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+              <Tooltip content={<ProTooltip />} />
+              <Line type="monotone" dataKey={yKey!} stroke="#4472C4" strokeWidth={2.5} dot={{ r: 4, fill: "#4472C4" }} activeDot={{ r: 6, stroke: "#fff", strokeWidth: 2 }}>
+                <LabelList dataKey={yKey!} position="top" style={{ fontSize: 9, fill: "#94a3b8" }} />
+              </Line>
+            </LineChart>
+          ) : chartType === "area" ? (
+            <AreaChart data={displayData}>
+              <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.04)" />
+              <XAxis dataKey={xKey || "index"} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+              <Tooltip content={<ProTooltip />} />
+              {Object.keys(displayData[0]).filter((k) => k !== "index" && k !== xKey).map((key, idx) => (
+                <Area key={key} type="monotone" dataKey={key} stroke={EXCEL_COLORS[idx % EXCEL_COLORS.length]} fill={EXCEL_COLORS[idx % EXCEL_COLORS.length]} fillOpacity={0.08} strokeWidth={2} />
+              ))}
+            </AreaChart>
+          ) : chartType === "pie" ? (
+            <PieChart>
+              <Pie data={displayData} dataKey={dataKey || "count"} nameKey="name" cx="50%" cy="50%" outerRadius={100} innerRadius={50} paddingAngle={1} stroke="none">
+                <LabelList dataKey="name" position="outside" style={{ fontSize: 9, fill: "#94a3b8" }} />
+                {displayData.map((_, idx) =>
+                  <Cell key={idx} fill={EXCEL_COLORS[idx % EXCEL_COLORS.length]} />
+                )}
+              </Pie>
+              <Tooltip content={<ProTooltip />} />
+            </PieChart>
+          ) : (
+            <ScatterChart>
+              <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.04)" />
+              <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: "#94a3b8" }} name={xKey} />
+              <YAxis dataKey={yKey} tick={{ fontSize: 11, fill: "#94a3b8" }} name={yKey} />
+              <Tooltip content={<ProTooltip />} />
+              <Scatter data={displayData} fill="#4472C4" opacity={0.7} />
+            </ScatterChart>
+          )}
+        </ResponsiveContainer>
+      </div>
+
+      {/* Drill-down modal */}
+      {drillDown && (
+        <div className="fixed inset-0 z-[300] bg-black/60 flex items-center justify-center p-4" onClick={() => setDrillDown(null)}>
+          <div className="glass-card p-6 max-w-3xl w-full max-h-[75vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Table2 className="w-4 h-4 text-blue-400" />
+                {drillDown.length > 1 ? "Chart Data" : "Data Point Details"} ({drillDown.length})
+              </h3>
+              <button onClick={() => setDrillDown(null)} className="p-1 rounded-lg hover:bg-white/5 text-slate-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {drillDown.length === 1 ? (
+              <div className="space-y-2">
+                {Object.entries(drillDown[0] || {}).map(([key, val]) => (
+                  <div key={key} className="flex justify-between items-center py-2 border-b border-white/5">
+                    <span className="text-xs text-slate-400 font-mono">{key}</span>
+                    <span className="text-xs text-white font-semibold">{String(val ?? "—")}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/5">
+                      <th className="text-left px-2 py-2 text-slate-400 font-medium">#</th>
+                      {Object.keys(drillDown[0] || {}).map((k) => (
+                        <th key={k} className="text-left px-2 py-2 text-slate-400 font-medium whitespace-nowrap">{k}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drillDown.slice(0, 50).map((row, i) => (
+                      <tr key={i} className="border-b border-white/[0.02] hover:bg-white/[0.02]">
+                        <td className="px-2 py-1.5 text-slate-500 font-mono">{i + 1}</td>
+                        {Object.keys(drillDown[0] || {}).map((k) => (
+                          <td key={k} className="px-2 py-1.5 text-slate-300 max-w-[150px] truncate font-mono">
+                            {String(row[k] ?? "—")}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {drillDown.length > 50 && (
+                  <p className="text-center text-[10px] text-slate-500 mt-2">Showing 50 of {drillDown.length} rows</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) {
+  if (!active || !payload || payload.length === 0) return null;
+  return (
+    <div className="bg-[#1a1a3e]/95 border border-white/10 rounded-lg px-3 py-2 shadow-xl backdrop-blur-md">
+      <p className="text-[11px] text-slate-400 mb-1 font-medium">{label}</p>
+      {payload.map((p, i) => (
+        <p key={i} className="text-xs font-semibold" style={{ color: p.color }}>
+          {p.name}: {typeof p.value === "number" ? p.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : p.value}
+        </p>
+      ))}
+    </div>
+  );
+}
