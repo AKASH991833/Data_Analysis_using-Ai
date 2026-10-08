@@ -1,8 +1,9 @@
+import { filterDatasetRows } from "@/lib/dataset-filters";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { datasets } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { generateKPIs } from "@/lib/analytics-engine";
+import { generateKPIs, profileData, generateInsights } from "@/lib/analytics-engine";
 import type { ColumnMeta, DataProfile } from "@/db/schema";
 
 export async function GET(
@@ -25,17 +26,17 @@ export async function GET(
       return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
     }
 
-    if (filterCol && filterVal && filterVal !== "All") {
-      // Apply filter and recompute KPIs
-      const allRows = (dataset.rawData || []) as Record<string, unknown>[];
-      const cleanedRows = (dataset.cleanedData || []) as Record<string, unknown>[];
-      const filteredRaw = allRows.filter((r) => String(r[filterCol]).toLowerCase() === filterVal.toLowerCase());
-      const filteredCleaned = cleanedRows.filter((r) => String(r[filterCol]).toLowerCase() === filterVal.toLowerCase());
-      const profile = dataset.profile as DataProfile;
+    if ((filterCol && filterVal && filterVal !== "All") || searchParams.get("filterCol2") || (searchParams.get("period") && searchParams.get("period") !== "all")) {
+      const allRows = (dataset.cleanedData || dataset.rawData || []) as Record<string, unknown>[];
+      const cleanedRows = allRows;
+      const filteredCleaned = filterDatasetRows(cleanedRows, (dataset.columns || []) as ColumnMeta[], searchParams);
+      const filteredRaw = filteredCleaned;
+      const sourceMetas = (dataset.columns || []) as ColumnMeta[];
+      const filteredRows = filteredCleaned;
+      const { profile, columnMetas } = profileData(filteredRows, sourceMetas.map((m) => m.name));
 
       // Recompute KPIs on filtered data
-      const columnMetas = (dataset.columns || []) as ColumnMeta[];
-      const filteredKPIs = generateKPIs(filteredCleaned.length > 0 ? filteredCleaned : filteredRaw, profile, columnMetas, dataset.domain || "");
+      const filteredKPIs = generateKPIs(filteredRows, profile, columnMetas, dataset.domain || "");
 
       // Compute columnValues from allRows (unfiltered for slicer options)
       const valCols = [...(profile?.categoricalColumns || []), ...(profile?.locationColumns || [])];
@@ -50,6 +51,8 @@ export async function GET(
       return NextResponse.json({
         ...meta,
         kpis: filteredKPIs,
+        profile, columns: columnMetas,
+        insights: generateInsights(filteredRows, profile, columnMetas, dataset.domain || ""),
         rowCount: filteredRaw.length,
         filtered: true,
         filterApplied: `${filterCol} = ${filterVal}`,
