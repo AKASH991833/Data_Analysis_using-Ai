@@ -28,7 +28,8 @@ export async function GET() {
   }
 }
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || (process.env.VERCEL ? "4" : "50"));
+const MAX_FILE_SIZE = MAX_UPLOAD_MB * 1024 * 1024;
 const MAX_ANALYZED_ROWS = 100000; // Excel pivot-level: 100K rows typical analyst limit
 
 export async function POST(req: NextRequest) {
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
 
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: `File too large. Max size is 50MB.` },
+        { error: `File too large. Max size is ${MAX_UPLOAD_MB}MB on this host.` },
         { status: 400 }
       );
     }
@@ -185,4 +186,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
