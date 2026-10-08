@@ -5,6 +5,7 @@ import type { ColumnMeta, DataProfile } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { datasetRows } from "@/lib/row-store";
 import { filterDatasetRows } from "@/lib/dataset-filters";
+import { getDashboardPlan, planKpis, planCharts } from "@/lib/dashboard-plan";
 import { generateChartRecommendations, generateInsights, generateKPIs, profileData } from "@/lib/analytics-engine";
 import { shareByToken } from "@/lib/share";
 
@@ -31,6 +32,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
       columnValues[col] = [...new Set(all.map((r) => String(r[col] ?? "")).filter(Boolean))].slice(0, 100);
     }
     const domain = dataset.domain || "";
+    const plan = await getDashboardPlan(dataset.id, columns, base, domain);
+    const plannedCharts = plan ? planCharts(plan, rows) : [];
     const res = NextResponse.json({
       name: dataset.name,
       domain,
@@ -38,9 +41,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
       totalRows: all.length,
       columnCount: names.length,
       profile: { qualityScore: profile.qualityScore, categoricalColumns: base.categoricalColumns, locationColumns: base.locationColumns },
-      kpis: generateKPIs(rows, profile, columnMetas, domain),
+      kpis: plan ? planKpis(plan, rows, profile) : generateKPIs(rows, profile, columnMetas, domain),
       insights: generateInsights(rows, profile, columnMetas, domain),
-      charts: generateChartRecommendations(rows, profile, columnMetas),
+      charts: plannedCharts.length >= 3 ? plannedCharts : generateChartRecommendations(rows, profile, columnMetas),
       columnValues,
       columns: names,
       preview: rows.slice(0, 100),
