@@ -21,6 +21,7 @@ export interface ExecutiveBoardProps {
   cleaning?: Cleaning;
   filters: Record<string, string>;
   onPoint: (col: string, val: string) => void;
+  plan?: { engine: string; domain?: string };
 }
 
 const ACCENTS = ["#5B9BD5", "#ED7D31", "#70AD47", "#FFC000", "#9B57A0", "#4472C4"];
@@ -63,7 +64,7 @@ function Card({ title, sub, children, className }: { title: string; sub?: string
   );
 }
 
-export function ExecutiveBoard({ kpis, charts, profile, insights, cleaning, filters, onPoint }: ExecutiveBoardProps) {
+export function ExecutiveBoard({ kpis, charts, profile, insights, cleaning, filters, onPoint, plan }: ExecutiveBoardProps) {
   const layout = useMemo(() => {
     const used = new Set<number>();
     const take = (pred: (c: BoardChart) => boolean) => {
@@ -88,6 +89,12 @@ export function ExecutiveBoard({ kpis, charts, profile, insights, cleaning, filt
 
   return (
     <div className="space-y-3 sm:space-y-4" data-testid="executive-board">
+      {plan?.engine === "gemini" && (
+        <div className="flex items-center gap-2 text-[10px] text-slate-400">
+          <Brain className="w-3 h-3 text-purple-400" />
+          <span>AI-composed {plan.domain ? `${plan.domain} ` : ""}dashboard: Gemini chose the KPIs and charts from column names only, all numbers are computed from your data.</span>
+        </div>
+      )}
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-3">
         {tiles.map((k, i) => {
