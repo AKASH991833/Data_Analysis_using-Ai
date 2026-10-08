@@ -4,8 +4,9 @@ import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   Table2, Loader2, Download, GripVertical, X, Plus,
   ChevronRight, ChevronDown, Sigma, Hash, Type,
-  Percent, Copy, Check, ArrowUpDown, Search,
+  Percent, Copy, Check, ArrowUpDown, Search, Wand2, BarChart3,
 } from "lucide-react";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, Cell as RCell } from "recharts";
 import type { ColumnMeta } from "@/db/schema";
 import { parseNumeric } from "@/lib/analytics-engine";
 import { cn } from "@/lib/utils";
@@ -81,6 +82,8 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
   const [sortAsc, setSortAsc] = useState(true);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [pivotSearch, setPivotSearch] = useState("");
+  const [showChart, setShowChart] = useState(true);
+  const [drill, setDrill] = useState<{ title: string; rows: Record<string, unknown>[] } | null>(null);
 
   useEffect(() => {
     fetch(`/api/datasets/${datasetId}/rows`)
@@ -262,6 +265,27 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
     return { colKeys, rowKeys, matrix, grandTotals, colTotals };
   }, [allRows, rowFields, colFields, valueFields]);
 
+  const measureCol = useMemo(() => numericCols.find((c) => c.semanticType !== "identifier")?.name, [numericCols]);
+  const dimCols = useMemo(() => columns.filter((c) => !numericCols.some((n) => n.name === c.name) && c.type !== "date" && c.uniqueCount >= 2 && c.uniqueCount <= 40 && c.semanticType !== "identifier"), [columns, numericCols]);
+  const presets = useMemo(() => {
+    const out: { label: string; apply: () => void }[] = [];
+    const [d1, d2] = dimCols;
+    if (d1 && measureCol) {
+      out.push({ label: `Total ${measureCol} by ${d1.name}`, apply: () => { setRowFields([{ column: d1.name }]); setColFields([]); setValueFields([{ column: measureCol, aggregation: "sum" }]); } });
+      out.push({ label: `Average ${measureCol} by ${d1.name}`, apply: () => { setRowFields([{ column: d1.name }]); setColFields([]); setValueFields([{ column: measureCol, aggregation: "avg" }]); } });
+    }
+    if (d1) out.push({ label: `Record count by ${d1.name}`, apply: () => { setRowFields([{ column: d1.name }]); setColFields([]); setValueFields([{ column: d1.name, aggregation: "count" }]); } });
+    if (d1 && d2 && d2.uniqueCount <= 8 && measureCol) {
+      out.push({ label: `${d1.name} x ${d2.name} (cross-tab)`, apply: () => { setRowFields([{ column: d1.name }]); setColFields([{ column: d2.name }]); setValueFields([{ column: measureCol, aggregation: "sum" }]); } });
+    }
+    return out;
+  }, [dimCols, measureCol]);
+
+  const cellRows = useCallback((rk: { keys: Record<string, string> }, col: string) => {
+    const cf = colFields[0]?.column;
+    return allRows.filter((r) => rowFields.every((f) => String(r[f.column] ?? "(blank)") === rk.keys[f.column]) && (!cf || col === "(total)" || String(r[cf] ?? "(blank)") === col));
+  }, [allRows, rowFields, colFields]);
+
   const filteredRowKeys = useMemo(() => {
     if (!pivotResult) return [];
     if (!pivotSearch.trim()) return pivotResult.rowKeys;
@@ -270,6 +294,25 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
       Object.values(rk.keys).some((v) => String(v).toLowerCase().includes(q))
     );
   }, [pivotResult, pivotSearch]);
+
+  const displayRowKeys = useMemo(() => {
+    if (!pivotResult || !sortCol) return filteredRowKeys;
+    const vf0 = valueFields[0]?.column;
+    const val = (rk: { keys: Record<string, string> }) => {
+      const ck = rowFields.map((f) => rk.keys[f.column]).join("|||");
+      return pivotResult.matrix[ck]?.[sortCol === "_total" ? `_total||${vf0}` : `${sortCol}||${vf0}`] ?? 0;
+    };
+    return [...filteredRowKeys].sort((a, b) => sortAsc ? val(a) - val(b) : val(b) - val(a));
+  }, [pivotResult, filteredRowKeys, sortCol, sortAsc, rowFields, valueFields]);
+
+  const chartData = useMemo(() => {
+    if (!pivotResult || !valueFields[0]) return [];
+    const vf0 = valueFields[0].column;
+    return displayRowKeys.map((rk) => {
+      const ck = rowFields.map((f) => rk.keys[f.column]).join("|||");
+      return { name: rowFields.map((f) => rk.keys[f.column]).join(" / "), value: pivotResult.matrix[ck]?.[`_total||${vf0}`] ?? 0 };
+    }).sort((a, b) => b.value - a.value).slice(0, 12);
+  }, [pivotResult, displayRowKeys, rowFields, valueFields]);
 
   const allMatrixValues = useMemo(() => {
     if (!pivotResult) return { min: 0, max: 0 };
@@ -384,6 +427,10 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
                     : "bg-white/5 border-white/10 text-slate-400 hover:bg-white/10"
                 )}
               ><Percent className="w-3 h-3" /> %</button>
+              <button onClick={() => setShowChart(!showChart)}
+                className={cn("flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] transition-all",
+                  showChart ? "bg-blue-500/15 text-blue-400 border-blue-500/30" : "bg-white/5 border-white/10 text-slate-400 hover:bg-white/10")}
+              ><BarChart3 className="w-3 h-3" /> Chart</button>
               <button onClick={exportPivot}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-slate-300 hover:bg-white/10 transition-colors"
               ><Download className="w-3 h-3" /> CSV</button>
@@ -391,6 +438,17 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
           )}
         </div>
       </div>
+
+      {/* Suggested pivots */}
+      {presets.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-slate-500"><Wand2 className="w-3 h-3" />Quick pivots</span>
+          {presets.map((pr) => (
+            <button key={pr.label} onClick={pr.apply} className="px-3 py-1.5 rounded-full border border-blue-500/25 bg-blue-500/10 text-[11px] text-blue-200 hover:bg-blue-500/20 transition-colors">{pr.label}</button>
+          ))}
+          {(rowFields.length > 0 || valueFields.length > 0) && <button onClick={() => { setRowFields([]); setColFields([]); setValueFields([]); setSortCol(null); }} className="text-[11px] text-slate-500 hover:text-white underline underline-offset-2">Reset</button>}
+        </div>
+      )}
 
       {/* Available Columns */}
       <div className="glass-card p-3">
@@ -400,6 +458,8 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
             const isNumeric = numericCols.some((c) => c.name === col.name);
             return (
               <div key={col.name} draggable
+                onClick={() => addField(isNumeric ? "values" : "rows", col.name)}
+                title={isNumeric ? "Click to add to Values (or drag)" : "Click to add to Rows (or drag)"}
                 onDragStart={() => onDragStart(col.name)}
                 onDragEnd={onDragEnd}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 cursor-grab active:cursor-grabbing hover:bg-white/10 hover:border-blue-500/30 transition-all text-[11px] text-slate-300"
@@ -446,6 +506,24 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
             </span>
           </div>
 
+          {showChart && chartData.length > 0 && (
+            <div className="px-4 pt-3 pb-1 border-b border-white/5">
+              <p className="text-[10px] text-slate-500 mb-1">Top {chartData.length} by {valueFields[0] && AGG_LABELS[valueFields[0].aggregation || "sum"]} of {valueFields[0]?.column} (row totals)</p>
+              <div style={{ height: Math.max(140, chartData.length * 24) }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} layout="vertical" margin={{ left: 4, right: 24, top: 0, bottom: 0 }}>
+                    <XAxis type="number" tick={{ fontSize: 10, fill: "#94a3b8" }} />
+                    <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 10, fill: "#cbd5e1" }} interval={0} tickFormatter={(v: string) => v.length > 16 ? v.slice(0, 15) + "…" : v} />
+                    <RTooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} contentStyle={{ background: "#1a1a3e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 12 }} formatter={(v) => Number(v).toLocaleString()} />
+                    <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={18}>
+                      {chartData.map((_, i) => <RCell key={i} fill={["#4472C4", "#ED7D31", "#70AD47", "#FFC000", "#5B9BD5", "#9B57A0"][i % 6]} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
           {/* Table */}
           <div className="overflow-x-auto max-h-[600px]">
             <table className="w-full text-xs">
@@ -474,8 +552,8 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
                       </div>
                     </th>
                   ))}
-                  <th className="sticky top-0 z-10 px-3 py-2.5 text-right text-slate-500 font-medium bg-dark-card border-b border-white/5 text-[10px] uppercase tracking-wider">
-                    Grand Total
+                  <th onClick={() => toggleSort("_total")} className="sticky top-0 z-10 px-3 py-2.5 text-right text-slate-500 font-medium bg-dark-card border-b border-white/5 text-[10px] uppercase tracking-wider cursor-pointer hover:text-slate-300">
+                    Grand Total {sortCol === "_total" && <ArrowUpDown className="inline w-2.5 h-2.5" />}
                   </th>
                 </tr>
                 {valueFields.length > 1 && (
@@ -489,25 +567,12 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
                 )}
               </thead>
               <tbody>
-                {filteredRowKeys.map((rk) => {
+                {displayRowKeys.map((rk) => {
                   const ck = rowFields.map((f) => rk.keys[f.column]).join("|||");
                   const isFirst = rowFields.length > 1;
                   const firstField = rowFields[0]?.column;
                   const firstVal = firstField ? rk.keys[firstField] : "";
                   const isExpanded = expandedKeys.has(ck);
-
-                  // Determine sort order
-                  let sortedVals = valueFields;
-                  if (sortCol) {
-                    const sortedRowKeys = [...filteredRowKeys].sort((a, b) => {
-                      const aCk = rowFields.map((f) => a.keys[f.column]).join("|||");
-                      const bCk = rowFields.map((f) => b.keys[f.column]).join("|||");
-                      const aVal = pivotResult.matrix[aCk]?.[`${sortCol}||${valueFields[0]?.column}`] || 0;
-                      const bVal = pivotResult.matrix[bCk]?.[`${sortCol}||${valueFields[0]?.column}`] || 0;
-                      return sortAsc ? aVal - bVal : bVal - aVal;
-                    });
-                    if (sortedRowKeys.indexOf(rk) === -1) return null;
-                  }
 
                   return (
                     <tr key={ck} className="border-b border-white/[0.02] hover:bg-white/[0.03] transition-colors">
@@ -534,8 +599,8 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
                           <td key={key}
                             className="px-3 py-1.5 text-right text-slate-300 font-mono tabular-nums cursor-pointer hover:ring-1 hover:ring-blue-500/30 rounded transition-all relative group/cell"
                             style={{ backgroundColor: bgColor }}
-                            onClick={() => copyToClipboard(formatCellValue(val, showPercent, total))}
-                            title="Click to copy"
+                            onClick={() => { const rr = cellRows(rk, col); setDrill({ title: `${rowFields.map((f) => rk.keys[f.column]).join(" / ")}${colFields[0] ? ` · ${col}` : ""}`, rows: rr }); }}
+                            title="Click to see the underlying rows"
                           >
                             <span className="text-[11px]">{formatCellValue(val, showPercent, total)}</span>
                             {copiedKey === formatCellValue(val, showPercent, total) && (
@@ -585,6 +650,22 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
         </div>
       )}
 
+      {drill && (
+        <div className="fixed inset-0 z-[300] bg-black/60 flex items-center justify-center p-4" onClick={() => setDrill(null)}>
+          <div className="glass-card p-5 max-w-4xl w-full max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-white">{drill.title} <span className="text-slate-500 font-normal">({drill.rows.length.toLocaleString()} rows)</span></h3>
+              <button onClick={() => setDrill(null)} className="p-1 rounded-lg hover:bg-white/5 text-slate-400"><X className="w-4 h-4" /></button>
+            </div>
+            {drill.rows.length === 0 ? <p className="text-xs text-slate-500">No rows.</p> : (
+              <div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="border-b border-white/5">{Object.keys(drill.rows[0]).map((k) => <th key={k} className="text-left px-2 py-2 text-slate-400 font-medium whitespace-nowrap">{k}</th>)}</tr></thead>
+                <tbody>{drill.rows.slice(0, 100).map((r, i) => <tr key={i} className="border-b border-white/[0.03]">{Object.keys(drill.rows[0]).map((k) => <td key={k} className="px-2 py-1.5 text-slate-300 whitespace-nowrap max-w-[180px] truncate">{String(r[k] ?? "")}</td>)}</tr>)}</tbody></table>
+                {drill.rows.length > 100 && <p className="text-center text-[10px] text-slate-500 mt-2">Showing 100 of {drill.rows.length.toLocaleString()} rows</p>}</div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Empty state */}
       {!pivotResult && (
         <div className="flex flex-col items-center justify-center py-20 text-center glass-card">
@@ -594,7 +675,7 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
             <li>1. <span className="text-blue-400">Drag</span> a column from above to <span className="text-white/70">Rows</span></li>
             <li>2. <span className="text-blue-400">Drag</span> a numeric column to <span className="text-white/70">Values</span></li>
             <li>3. Optionally drag to <span className="text-white/70">Columns</span> for cross-tabulation</li>
-            <li>4. Click a cell to <span className="text-white/70">copy</span> its value</li>
+            <li>4. Click a cell to <span className="text-white/70">see the rows</span> behind it</li>
             <li>5. Click column headers to <span className="text-white/70">sort</span></li>
             <li>6. Toggle <span className="text-white/70">%</span> to show percentages</li>
           </ol>
@@ -602,4 +683,4 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
       )}
     </div>
   );
-}
+              }
