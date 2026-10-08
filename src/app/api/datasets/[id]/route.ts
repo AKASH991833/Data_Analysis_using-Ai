@@ -1,5 +1,5 @@
 import { datasetRows, deleteRows } from "@/lib/row-store";
-import { filterDatasetRows } from "@/lib/dataset-filters";
+import { filterDatasetRows, hasActiveFilters } from "@/lib/dataset-filters";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { datasets } from "@/db/schema";
@@ -27,7 +27,7 @@ export async function GET(
       return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
     }
 
-    if ((filterCol && filterVal && filterVal !== "All") || searchParams.get("filterCol2") || (searchParams.get("period") && searchParams.get("period") !== "all")) {
+    if (hasActiveFilters(searchParams)) {
       const allRows = await datasetRows(dataset);
       const cleanedRows = allRows;
       const filteredCleaned = filterDatasetRows(cleanedRows, (dataset.columns || []) as ColumnMeta[], searchParams);
