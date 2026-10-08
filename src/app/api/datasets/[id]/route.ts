@@ -60,6 +60,11 @@ export async function GET(
       });
     }
 
+    const activeRows = (dataset.cleanedData || dataset.rawData || []) as Record<string, unknown>[];
+    const recomputed = profileData(activeRows, ((dataset.columns || []) as ColumnMeta[]).map((m) => m.name));
+    dataset.columns = recomputed.columnMetas; dataset.profile = recomputed.profile;
+    dataset.kpis = generateKPIs(activeRows, recomputed.profile, recomputed.columnMetas, dataset.domain || "");
+    dataset.insights = generateInsights(activeRows, recomputed.profile, recomputed.columnMetas, dataset.domain || "");
     // Include distinct values for slicer columns (from raw data)
     const allRows = (dataset.rawData || []) as Record<string, unknown>[];
     const dsProfile = dataset.profile as DataProfile | null;
