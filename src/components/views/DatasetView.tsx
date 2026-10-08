@@ -104,8 +104,8 @@ export function DatasetView({ datasetId, onNavigate }: DatasetViewProps) {
     <div className="min-h-screen">
       {/* Header */}
       <div className="sticky top-0 z-40 glass-card border-b border-white/5 px-6 py-4" style={{ borderRadius: 0 }}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-4 min-w-0">
             <button
               onClick={() => onNavigate("datasets")}
               className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors"
@@ -113,11 +113,11 @@ export function DatasetView({ datasetId, onNavigate }: DatasetViewProps) {
               <ArrowLeft className="w-4 h-4" />
             </button>
             <div>
-              <h1 className="text-lg font-bold text-white flex items-center gap-2">
+              <h1 className="text-lg font-bold text-white flex items-center gap-2 break-all">
                 <Database className="w-4 h-4 text-blue-400" />
                 {dataset.name}
               </h1>
-              <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-400">
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-0.5 text-xs text-slate-400">
                 <span>{(dataset.rowCount || 0).toLocaleString()} rows</span>
                 <span>•</span>
                 <span>{dataset.columnCount} columns</span>
