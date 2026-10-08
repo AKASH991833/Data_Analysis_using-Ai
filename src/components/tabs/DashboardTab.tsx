@@ -38,6 +38,7 @@ interface FullDashboardData {
   insights: Insight[];
   cleaningReport: { totalIssues: number; fixedIssues: number; qualityBefore: number; qualityAfter: number; };
   columnValues?: Record<string, string[]>;
+  dashboardPlan?: { engine: string; domain?: string };
 }
 
 interface ChartRec {
@@ -419,7 +420,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
         {/* ── OVERVIEW VIEW ── */}
         {activeView === "overview" && (
           <ExecutiveBoard kpis={kpis.slice(0, 6)} charts={orderedCharts} profile={profile} insights={insights}
-            cleaning={cleaningReport} filters={filters} onPoint={onPoint} />
+            cleaning={cleaningReport} filters={filters} onPoint={onPoint} plan={data.dashboardPlan} />
         )}
 
         {/* ── PERFORMANCE VIEW ── */}
