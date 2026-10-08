@@ -1,3 +1,4 @@
+import { datasetRows, deleteRows } from "@/lib/row-store";
 import { filterDatasetRows } from "@/lib/dataset-filters";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
@@ -27,7 +28,7 @@ export async function GET(
     }
 
     if ((filterCol && filterVal && filterVal !== "All") || searchParams.get("filterCol2") || (searchParams.get("period") && searchParams.get("period") !== "all")) {
-      const allRows = (dataset.cleanedData || dataset.rawData || []) as Record<string, unknown>[];
+      const allRows = await datasetRows(dataset);
       const cleanedRows = allRows;
       const filteredCleaned = filterDatasetRows(cleanedRows, (dataset.columns || []) as ColumnMeta[], searchParams);
       const filteredRaw = filteredCleaned;
@@ -60,13 +61,13 @@ export async function GET(
       });
     }
 
-    const activeRows = (dataset.cleanedData || dataset.rawData || []) as Record<string, unknown>[];
+    const activeRows = await datasetRows(dataset);
     const recomputed = profileData(activeRows, ((dataset.columns || []) as ColumnMeta[]).map((m) => m.name));
     dataset.columns = recomputed.columnMetas; dataset.profile = recomputed.profile;
     dataset.kpis = generateKPIs(activeRows, recomputed.profile, recomputed.columnMetas, dataset.domain || "");
     dataset.insights = generateInsights(activeRows, recomputed.profile, recomputed.columnMetas, dataset.domain || "");
     // Include distinct values for slicer columns (from raw data)
-    const allRows = (dataset.rawData || []) as Record<string, unknown>[];
+    const allRows = await datasetRows(dataset, "raw");
     const dsProfile = dataset.profile as DataProfile | null;
     const columnValues: Record<string, string[]> = {};
     const valueCols = [...(dsProfile?.categoricalColumns || []), ...(dsProfile?.locationColumns || [])];
@@ -93,6 +94,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     await db.delete(datasets).where(eq(datasets.id, id));
+    await deleteRows(id);
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json(
