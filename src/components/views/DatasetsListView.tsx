@@ -47,7 +47,7 @@ export function DatasetsListView({ onNavigate }: DatasetsListViewProps) {
       .then((data) => setDatasets(data))
       .catch(() => toast("error", "Could not load datasets"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [toast]);
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
