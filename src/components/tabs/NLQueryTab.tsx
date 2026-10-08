@@ -52,16 +52,8 @@ const COLORS = [
   "#f43f5e",
 ];
 
-const suggestions = [
-  "Show me the total summary",
-  "What are the top performers?",
-  "Show monthly trend",
-  "How many records are there?",
-  "Show distribution breakdown",
-  "What is the average value?",
-];
-
 export function NLQueryTab({ datasetId }: NLQueryTabProps) {
+  const [suggestions, setSuggestions] = useState<string[]>(["How many records are there?"]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -70,6 +62,26 @@ export function NLQueryTab({ datasetId }: NLQueryTabProps) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Use exact dataset column names instead of ambiguous generic prompts.
+  useEffect(() => {
+    fetch(`/api/datasets/${datasetId}`)
+      .then((r) => r.json())
+      .then((dataset: { columns?: { name: string; type: string; isKey?: boolean }[] }) => {
+        const columns = dataset.columns || [];
+        const numeric = columns.filter((c) => c.type === "number");
+        const groups = columns.filter((c) => c.type === "string" && !c.isKey);
+        const prompts = ["How many records are there?"];
+        if (numeric[0]) {
+          const measure = JSON.stringify(numeric[0].name);
+          prompts.push(`What is the total ${measure}?`, `What is the average ${measure}?`);
+          if (groups[0]) prompts.push(`Rank ${JSON.stringify(groups[0].name)} by total ${measure}.`);
+        }
+        if (groups[0]) prompts.push(`Count records by ${JSON.stringify(groups[0].name)}.`);
+        setSuggestions(prompts);
+      })
+      .catch(() => {});
+  }, [datasetId]);
 
   // Load query history on mount
   useEffect(() => {
