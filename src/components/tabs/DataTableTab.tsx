@@ -40,7 +40,7 @@ export function DataTableTab({ datasetId, columns, totalRows }: DataTableTabProp
   const [columnFilters, setColumnFilters] = useState<ColumnFilter[]>([]);
 
   useEffect(() => {
-    setLoadingRows(true);
+    Promise.resolve().then(() => setLoadingRows(true));
     fetch(`/api/datasets/${datasetId}/rows`)
       .then((r) => r.json())
       .then((res) => setData(res.rows || []))
