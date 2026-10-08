@@ -1,94 +1,61 @@
-# NexusAI Analytics 🚀
+# NexusAI Analytics
 
-NexusAI Analytics is a sophisticated, AI-powered data analysis platform designed to transform raw datasets into actionable insights with professional-grade visualizations. Built with Next.js 15, Drizzle ORM, and Recharts, it offers a seamless experience for data profiling, cleaning, and exploration.
+Single-user dataset exploration with the existing Next.js/TypeScript dashboard UI, MySQL/Drizzle storage, charts, pivots and optional Gemini query planning. Calculations run locally on the server, not in the language model.
 
-![NexusAI Analytics](https://img.shields.io/badge/NexusAI-Analytics-blue?style=for-the-badge)
-![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-38B2AC?style=for-the-badge&logo=tailwind-css)
-![MySQL](https://img.shields.io/badge/MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white)
+## Run locally
 
-## ✨ Key Features
+Requires Node.js 20.9+ (Node 22 LTS recommended) and MySQL 8.
 
-- **🧠 Intelligent Data Profiling:** Automatically detects data types, semantic categories (Revenue, Location, Customer, etc.), and evaluates data quality.
-- **🧹 Auto-Cleaning Engine:** One-click statistical imputation for missing values, whitespace normalization, and duplicate removal.
-- **📈 Professional Visualizations:** Interactive Bar, Line, Area, Pie, and Scatter charts with Excel-style professional aesthetics.
-- **💡 AI Insights Generator:** Automatically identifies trends, anomalies, and provides data-driven recommendations.
-- **💬 Natural Language Queries:** Ask questions about your data in plain English and get instant answers with relevant charts.
-- **📊 Dynamic Dashboards:** Create and save custom widgets to build comprehensive data stories.
-- **📂 Multi-Format Support:** Seamlessly upload and analyze CSV and Excel files.
+```sh
+npm ci
+cp .env.example .env
+# Set DB_PASSWORD and other DB settings in .env. Never commit .env.
+docker compose up -d mysql
+npm run db:push
+npm run dev
+```
 
-## 🛠️ Tech Stack
+`npm run db:push` uses `drizzle.config.ts` and environment variables. The old JSON config is a secret-free example only. The Docker database binds to localhost, not all network interfaces. Use a least-privilege DB user for deployment rather than root.
 
-- **Frontend:** Next.js 15 (App Router), TypeScript, Tailwind CSS, Framer Motion
-- **Visualizations:** Recharts, Lucide React
-- **Backend:** Next.js API Routes
-- **Database:** MySQL with Drizzle ORM
-- **Utilities:** Papaparse (CSV), XLSX (Excel), UUID
+```sh
+npm test
+npm run typecheck
+npm run lint
+npm run build
+# Before running production, set APP_USERNAME and APP_PASSWORD.
+npm start
+```
 
-## 🚀 Getting Started
+## Correctness and scope
 
-### Prerequisites
+- CSV/TSV/TXT, JSON object rows and the first XLSX worksheet are supported. Legacy XLS is rejected because its previous parser has known vulnerabilities; export it as XLSX or CSV.
+- Numeric parsing is strict, supports US comma grouping and leading $, £, €, ₹ symbols, and rejects partial values such as `12abc`. Other locale formats and percentages need explicit conversion. ISO dates are not numeric measures.
+- Cleaning trims strings, normalizes numeric cells, fills missing measures with their mean or categories with their mode and removes exact duplicate rows. Missing dates/identifiers are not invented. These choices can change statistics. Raw rows remain stored; review the cleaning report before relying on results.
+- Cleaned profiles, KPIs and summaries are recalculated. Missingness and uniqueness are descriptive metrics, not a proof of business accuracy.
+- Dashboard category and location slicers intersect. Date filters use UTC calendar boundaries relative to today, not the latest date in the uploaded file. KPIs and charts use the same filtered rows.
+- Date-ordered KPI changes compare two row halves, not equal calendar periods. The linear projection uses chronological monthly chart values; its R² is fit quality, not validated forecast accuracy.
+- Local questions support count, sum, average, median, min/max, top grouped sums, distribution and monthly totals with one exact-equality filter. Name the columns. Ambiguous/unsupported questions return a refusal, not a guessed answer.
+- Pivot supports multiple row fields and one column field. Average/min/max totals are recalculated from source records, not summed from displayed aggregates. A full pivot filter editor is not implemented.
+- Uploads are capped at 50 MB and stored/analysed rows at 100,000. File parsing happens before the row cap, so use smaller files for limited-memory servers. No streaming ingestion, multi-sheet joins, SQL warehouse, model validation or general-purpose forecasting is promised.
 
-- Node.js 18.x or higher
-- MySQL Database
+## Optional Gemini
 
-### Installation
+Set these server-side environment variables in your private hosting configuration:
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/AKASH991833/Data_Analysis_using-Ai.git
-   cd Data_Analysis_using-Ai
-   ```
+```dotenv
+GEMINI_ENABLED=true
+GEMINI_API_KEY=<your private key>
+GEMINI_MODEL=gemini-2.5-flash
+```
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+Never use a `NEXT_PUBLIC_` key. A request sends only the question and column names/types to Google, not rows, samples or computed statistics. The question can contain a filter label; do not put unrelated private information in it. Google generates a restricted JSON plan, which is validated before local calculation. Invalid plans are rejected; network errors fall back to the local parser. The returned interpretation should be reviewed. Provider quotas, model availability and terms apply; a free-tier key is not a guarantee of unlimited or free use.
 
-3. **Set up environment variables:**
-   Create a `.env` file in the root directory and add your database credentials:
-   ```env
-   DB_HOST=your_host
-   DB_PORT=3306
-   DB_USER=your_user
-   DB_PASSWORD=your_password
-   DB_NAME=your_db_name
-   ```
+No API key is included in this repository. Integration tests mock Gemini; enabling an actual host requires its private environment configuration.
 
-4. **Initialize the database:**
-   ```bash
-   npm run drizzle-kit push
-   ```
+## Security
 
-5. **Run the development server:**
-   ```bash
-   npm run dev
-   ```
+This is **not a multi-user service**. Production fails closed without APP_USERNAME/APP_PASSWORD; when configured it uses a shared HTTP Basic gate. Use HTTPS, strong unique credentials, a private database and backups. Cross-origin browser writes are rejected. This gate does not provide tenant ownership, account management or per-user isolation. Do not deploy for unrelated users until those are implemented.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Earlier versions published a database password. It is removed from current files but remains in Git history. Rotate it anywhere it was used; deleting a line does not revoke a secret.
 
-## 📁 Project Structure
-
-- `src/app/api`: Serverless API routes for data processing and database operations.
-- `src/components`: Reusable UI components including the advanced Excel-style charts.
-- `src/lib/analytics-engine.ts`: The core logic for data profiling, cleaning, and insight generation.
-- `src/db`: Database schema definitions and Drizzle configuration.
-
-## 🌐 Deployment
-
-To deploy this application live:
-
-1. **Vercel (Recommended):**
-   - Connect your GitHub repository to [Vercel](https://vercel.com).
-   - Configure your environment variables in the Vercel dashboard.
-   - Deploy!
-
-2. **Database:**
-   - Use a managed MySQL service like **Tidb Cloud**, **PlanetScale** or **Aiven** for a production-ready database.
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
----
-Built with ❤️ by [AKASH991833](https://github.com/AKASH991833)
+Dependencies were updated without `audit fix --force`. See `npm audit` for current results. Remaining advisories should be tracked rather than hidden; do not downgrade framework tooling just to quiet its audit report.
