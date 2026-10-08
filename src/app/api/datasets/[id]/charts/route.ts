@@ -1,9 +1,10 @@
+import { filterDatasetRows } from "@/lib/dataset-filters";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { datasets } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { generateChartRecommendations } from "@/lib/analytics-engine";
-import type { ColumnMeta, DataProfile } from "@/db/schema";
+import { generateChartRecommendations, profileData } from "@/lib/analytics-engine";
+import type { ColumnMeta } from "@/db/schema";
 
 export async function GET(
   req: NextRequest,
@@ -12,8 +13,6 @@ export async function GET(
   try {
     const { id } = await params;
     const { searchParams } = req.nextUrl;
-    const filterCol = searchParams.get("filterCol");
-    const filterVal = searchParams.get("filterVal");
 
     const [dataset] = await db
       .select()
@@ -27,13 +26,10 @@ export async function GET(
 
     let rows = (dataset.cleanedData || dataset.rawData || []) as Record<string, unknown>[];
 
-    // Apply filters
-    if (filterCol && filterVal && filterVal !== "All") {
-      rows = rows.filter((r) => String(r[filterCol]).toLowerCase() === filterVal.toLowerCase());
-    }
+    rows = filterDatasetRows(rows, (dataset.columns || []) as ColumnMeta[], searchParams);
 
-    const profile = dataset.profile as DataProfile;
-    const columnMetas = (dataset.columns || []) as ColumnMeta[];
+    const names = ((dataset.columns || []) as ColumnMeta[]).map((m) => m.name);
+    const { profile, columnMetas } = profileData(rows, names);
 
     const charts = generateChartRecommendations(rows, profile, columnMetas);
 
