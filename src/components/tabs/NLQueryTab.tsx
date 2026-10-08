@@ -230,7 +230,7 @@ export function NLQueryTab({ datasetId }: NLQueryTabProps) {
                 if (e.key === "Enter" && !loading) sendQuery(input);
               }}
               placeholder="Ask about your data..."
-              className="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/30"
+              className="min-w-0 flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/30"
             />
             <button
               onClick={() => sendQuery(input)}
