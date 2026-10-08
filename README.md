@@ -62,4 +62,6 @@ Dependencies were updated without `audit fix --force`. See `npm audit` for curre
 
 ## Free hosted deployment
 
+Live: https://nexusai-kappa-nine.vercel.app/ . Use the private login set through the secure setup link. The Vercel project is not yet GitHub-linked, so a GitHub push alone does not deploy changes.
+
 Vercel Hobby + TiDB Cloud Starter, no card. Keep TiDB monthly spending limit at $0; exhausting the free quota throttles the database instead of charging. TiDB requires TLS: set DB_SSL=true. Set private APP_USERNAME/APP_PASSWORD and GEMINI_API_KEY only in the host environment, never in the repository. GEMINI_ENABLED=true enables the approved schema-only planner. Hosted uploads are limited to 4MB (Vercel has a 4.5MB function payload limit); local servers default to 50MB.
