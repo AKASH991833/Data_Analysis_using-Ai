@@ -156,8 +156,7 @@ function classifyColumn(
   totalRows: number
 ): string {
   if (
-    col.includes("id") &&
-    (col.endsWith("id") || col.startsWith("id")) &&
+    /^(id|.*[_-]id|id[_-].*)$/.test(col) &&
     uniqueCount > totalRows * 0.8
   )
     return "identifier";
@@ -553,7 +552,7 @@ export function generateKPIs(
       const statuses = rows.map((r) => String(r[statusCol]));
       const completed = statuses.filter(
         (s) =>
-          /complete|done|closed|resolved|success/i.test(s)
+          /^(completed?|done|closed|resolved|success)$/i.test(s.trim())
       ).length;
       kpis.push({
         name: "Completion Rate",
@@ -831,7 +830,7 @@ export function processNLQuery(question: string, rows: Record<string, unknown>[]
     if (candidates.length !== 1) return { answer: "I could not resolve that filter uniquely. Use where column = value. No calculation was run." };
     filters.push({ column: candidates[0].name, value: explicit ? explicit[2] : text }); q = q.slice(0, filter.index).trim();
   }
-  if (/\b(and|or|excluding|between|greater|less|above|below|last|before|after)\b/.test(q)) return { answer: "That condition is not supported by the local parser. No calculation was run." };
+  if (/\b(and|or|excluding|between|greater|less|above|below|last|before|after)\b/.test(q) || /[<>!=]/.test(q)) return { answer: "That condition is not supported by the local parser. No calculation was run." };
   const mentions = metas.filter((m) => q.includes(m.name.toLowerCase()) || q.includes(m.name.toLowerCase().replace(/[_-]/g," ")));
   const numeric = mentions.filter((m) => m.type === "number");
   const candidates = metas.filter((m) => m.type === "number" && m.semanticType !== "identifier");
@@ -847,7 +846,8 @@ export function processNLQuery(question: string, rows: Record<string, unknown>[]
   else if (/\b(total|sum)\b/.test(q)) operation = "sum";
   else if (/\b(minimum|min)\b/.test(q)) operation = "min";
   else if (/\b(maximum|max)\b/.test(q)) operation = "max";
+  if (/\bby\b/.test(q) && !["top", "distribution", "trend"].includes(operation || "")) return { answer: "Grouped aggregates are not supported by the local parser except top sums and distribution. No calculation was run." };
   if (!operation) return { answer: "Local queries support count, sum, average, median, min/max, top, distribution and monthly totals with one exact-equality filter. Name the measure and group columns. No calculation was run." };
   const groupBy = operation === "trend" ? (groups.find((m) => m.type === "date")?.name || (profile.dateColumns.length === 1 ? profile.dateColumns[0] : undefined)) : groups.length === 1 ? groups[0].name : undefined;
   return executeQueryPlan({ operation, column, groupBy, filters }, rows, metas);
-                                                                 }
+        }
