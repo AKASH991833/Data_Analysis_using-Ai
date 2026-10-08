@@ -35,6 +35,7 @@ export function LandingView({ onNavigate }: LandingViewProps) {
       setUploadStatus("Reading file...");
 
       try {
+        if (file.size > 4 * 1024 * 1024) throw new Error("This free hosted app accepts files up to 4MB. Split a larger file before uploading.");
         const formData = new FormData();
         formData.append("file", file);
 
