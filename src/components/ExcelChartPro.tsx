@@ -5,7 +5,7 @@ import {
   BarChart, Bar, LineChart, Line, AreaChart, Area,
   PieChart, Pie, Cell, ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LabelList, Legend,
+  LabelList, Legend, ReferenceLine,
 } from "recharts";
 import { toPng } from "html-to-image";
 import {
@@ -20,13 +20,29 @@ interface ChartData {
   xKey?: string;
   yKey?: string;
   dataKey?: string;
+  filterCol?: string;
   data: Record<string, unknown>[];
 }
 
 interface Props {
   chart: ChartData;
   height?: number;
+  /** Called when a bar or slice is clicked on a chart that maps to a filterable column. */
+  onPointClick?: (column: string, value: string) => void;
+  /** Currently applied dashboard filters (column -> value); matching points stay highlighted. */
+  activeFilters?: Record<string, string>;
 }
+
+const compact = (v: unknown) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v ?? "");
+  const a = Math.abs(n);
+  if (a >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+  if (a >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (a >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(Math.round(n * 100) / 100);
+};
+const trunc = (v: unknown, n = 14) => { const t = String(v ?? ""); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
 
 const EXCEL_COLORS = [
   "#4472C4", "#ED7D31", "#A5A5A5", "#FFC000",
@@ -42,7 +58,7 @@ const CHART_TYPES = [
   { key: "scatter", icon: ScatterIcon, label: "Scatter" },
 ];
 
-export function ExcelChartPro({ chart, height = 320 }: Props) {
+export function ExcelChartPro({ chart, height = 320, onPointClick, activeFilters }: Props) {
   const chartRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [chartType, setChartType] = useState(chart.type);
@@ -82,6 +98,19 @@ export function ExcelChartPro({ chart, height = 320 }: Props) {
     setDrillDown(Array.isArray(entry) ? entry : entry ? [entry] : null);
   }, []);
 
+  const clickable = !!(chart.filterCol && onPointClick);
+  const activeValue = chart.filterCol ? activeFilters?.[chart.filterCol] : undefined;
+  const labelKey = chartType === "pie" ? "name" : xKey;
+  const isActive = (row: Record<string, unknown>) => !activeValue || String(row[labelKey || ""] ?? "").toLowerCase() === activeValue.toLowerCase();
+  const pick = (d: unknown) => {
+    const row = ((d as { payload?: Record<string, unknown> })?.payload ?? d) as Record<string, unknown>;
+    if (clickable && chart.filterCol) {
+      const v = String(row[labelKey || ""] ?? row["name"] ?? "");
+      if (v) onPointClick!(chart.filterCol, v);
+    } else if (row) handleDrillDown(row);
+  };
+  const pointTotal = data.reduce((a, r) => a + (Number(r[chartType === "pie" ? (dataKey || "count") : (yKey || "")]) || 0), 0);
+  const avg = data.length && yKey ? data.reduce((a, r) => a + (Number(r[yKey]) || 0), 0) / data.length : 0;
   const isPieLike = chartType === "pie";
   const displayData = isPieLike ? data : data;
 
@@ -138,6 +167,7 @@ export function ExcelChartPro({ chart, height = 320 }: Props) {
         </div>
       </div>
 
+      {clickable && <p className="text-[10px] text-slate-500 -mt-1 mb-1">Click a {chartType === "pie" ? "slice" : "bar"} to filter the whole dashboard</p>}
       {/* Chart */}
       <div
         ref={chartRef}
@@ -146,15 +176,29 @@ export function ExcelChartPro({ chart, height = 320 }: Props) {
       >
         <ResponsiveContainer width="100%" height="100%">
           {chartType === "bar" ? (
-            <BarChart data={displayData}>
-              <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.04)" />
-              <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: "#94a3b8" }} angle={-25} textAnchor="end" height={50} />
-              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
-              <Tooltip content={<ProTooltip />} />
-              <Bar dataKey={yKey!} radius={[3, 3, 0, 0]} maxBarSize={50}>
-                <LabelList dataKey={yKey!} position="top" style={{ fontSize: 9, fill: "#94a3b8" }} />
-                {displayData.map((_, idx) =>
-                  <Cell key={idx} fill={EXCEL_COLORS[idx % EXCEL_COLORS.length]} />
+            <BarChart data={displayData} margin={{ top: 16, right: 8, left: -8, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.04)" vertical={false} />
+              <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => trunc(v, 10)} interval="preserveStartEnd" angle={displayData.length > 6 ? -25 : 0} textAnchor={displayData.length > 6 ? "end" : "middle"} height={displayData.length > 6 ? 50 : 30} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={compact} />
+              <Tooltip content={<ProTooltip total={pointTotal} />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
+              {avg > 0 && <ReferenceLine y={avg} stroke="#f59e0b" strokeDasharray="4 4" label={{ value: `avg ${compact(avg)}`, position: "insideTopRight", fill: "#f59e0b", fontSize: 10 }} />}
+              <Bar dataKey={yKey!} radius={[4, 4, 0, 0]} maxBarSize={50} cursor={clickable ? "pointer" : "default"} onClick={pick}>
+                {displayData.length <= 12 && <LabelList dataKey={yKey!} position="top" formatter={compact} style={{ fontSize: 9, fill: "#94a3b8" }} />}
+                {displayData.map((r, idx) =>
+                  <Cell key={idx} fill={EXCEL_COLORS[idx % EXCEL_COLORS.length]} fillOpacity={isActive(r) ? 1 : 0.25} />
+                )}
+              </Bar>
+            </BarChart>
+          ) : chartType === "hbar" ? (
+            <BarChart data={displayData} layout="vertical" margin={{ top: 4, right: 36, left: 4, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.04)" horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={compact} />
+              <YAxis type="category" dataKey={xKey} width={96} tick={{ fontSize: 11, fill: "#cbd5e1" }} tickFormatter={(v) => trunc(v, 14)} interval={0} />
+              <Tooltip content={<ProTooltip total={pointTotal} />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
+              <Bar dataKey={yKey!} radius={[0, 4, 4, 0]} maxBarSize={26} cursor={clickable ? "pointer" : "default"} onClick={pick}>
+                <LabelList dataKey={yKey!} position="right" formatter={compact} style={{ fontSize: 10, fill: "#94a3b8" }} />
+                {displayData.map((r, idx) =>
+                  <Cell key={idx} fill={EXCEL_COLORS[idx % EXCEL_COLORS.length]} fillOpacity={isActive(r) ? 1 : 0.25} />
                 )}
               </Bar>
             </BarChart>
@@ -162,9 +206,9 @@ export function ExcelChartPro({ chart, height = 320 }: Props) {
             <LineChart data={displayData}>
               <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.04)" />
               <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={compact} />
               <Tooltip content={<ProTooltip />} />
-              <Line type="monotone" dataKey={yKey!} stroke="#4472C4" strokeWidth={2.5} dot={{ r: 4, fill: "#4472C4" }} activeDot={{ r: 6, stroke: "#fff", strokeWidth: 2 }}>
+              <Line type="monotone" dataKey={yKey!} stroke="#4472C4" strokeWidth={2.5} dot={{ r: 4, fill: "#4472C4" }} activeDot={{ r: 7, stroke: "#fff", strokeWidth: 2, cursor: "pointer", onClick: (_e: unknown, p: unknown) => handleDrillDown(((p as { payload?: Record<string, unknown> })?.payload) ?? {}) }}>
                 <LabelList dataKey={yKey!} position="top" style={{ fontSize: 9, fill: "#94a3b8" }} />
               </Line>
             </LineChart>
@@ -172,7 +216,7 @@ export function ExcelChartPro({ chart, height = 320 }: Props) {
             <AreaChart data={displayData}>
               <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.04)" />
               <XAxis dataKey={xKey || "index"} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={compact} />
               <Tooltip content={<ProTooltip />} />
               {Object.keys(displayData[0]).filter((k) => k !== "index" && k !== xKey).map((key, idx) => (
                 <Area key={key} type="monotone" dataKey={key} stroke={EXCEL_COLORS[idx % EXCEL_COLORS.length]} fill={EXCEL_COLORS[idx % EXCEL_COLORS.length]} fillOpacity={0.08} strokeWidth={2} />
@@ -180,13 +224,13 @@ export function ExcelChartPro({ chart, height = 320 }: Props) {
             </AreaChart>
           ) : chartType === "pie" ? (
             <PieChart>
-              <Pie data={displayData} dataKey={dataKey || "count"} nameKey="name" cx="50%" cy="50%" outerRadius={100} innerRadius={50} paddingAngle={1} stroke="none">
+              <Pie data={displayData} dataKey={dataKey || "count"} nameKey="name" cx="50%" cy="50%" outerRadius={100} innerRadius={50} paddingAngle={1} stroke="none" cursor={clickable ? "pointer" : "default"} onClick={pick}>
                 <LabelList dataKey="name" position="outside" style={{ fontSize: 9, fill: "#94a3b8" }} />
-                {displayData.map((_, idx) =>
-                  <Cell key={idx} fill={EXCEL_COLORS[idx % EXCEL_COLORS.length]} />
+                {displayData.map((r, idx) =>
+                  <Cell key={idx} fill={EXCEL_COLORS[idx % EXCEL_COLORS.length]} fillOpacity={isActive(r) ? 1 : 0.25} />
                 )}
               </Pie>
-              <Tooltip content={<ProTooltip />} />
+              <Tooltip content={<ProTooltip total={pointTotal} />} />
             </PieChart>
           ) : (
             <ScatterChart>
@@ -258,14 +302,15 @@ export function ExcelChartPro({ chart, height = 320 }: Props) {
   );
 }
 
-function ProTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) {
+function ProTooltip({ active, payload, label, total }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string; total?: number }) {
   if (!active || !payload || payload.length === 0) return null;
   return (
     <div className="bg-[#1a1a3e]/95 border border-white/10 rounded-lg px-3 py-2 shadow-xl backdrop-blur-md">
-      <p className="text-[11px] text-slate-400 mb-1 font-medium">{label}</p>
+      <p className="text-[11px] text-slate-400 mb-1 font-medium">{label}{(payload[0] as unknown as { payload?: { name?: string } })?.payload?.name && !label ? (payload[0] as unknown as { payload: { name: string } }).payload.name : ""}</p>
       {payload.map((p, i) => (
         <p key={i} className="text-xs font-semibold" style={{ color: p.color }}>
           {p.name}: {typeof p.value === "number" ? p.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : p.value}
+          {total && total > 0 && typeof p.value === "number" && payload.length === 1 ? <span className="text-slate-400 font-normal"> · {((p.value / total) * 100).toFixed(1)}% of total</span> : null}
         </p>
       ))}
     </div>
