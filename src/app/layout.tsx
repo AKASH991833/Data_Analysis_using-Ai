@@ -6,20 +6,14 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "NexusAI Analytics — AI-Powered Data Intelligence Platform",
+  title: "NexusAI Analytics — Data Exploration Platform",
   description:
-    "Enterprise-grade AI analytics platform. Upload data, get instant insights, KPIs, and interactive dashboards.",
+    "Single-user data exploration app. Upload data, get instant insights, KPIs, and interactive dashboards.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="dark">
-      <head>
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
-          rel="stylesheet"
-        />
-      </head>
       <body className="antialiased min-h-screen">
         <ErrorBoundary>
           <ThemeProvider>
