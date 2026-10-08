@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { datasets } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { getDashboardPlan, planKpis } from "@/lib/dashboard-plan";
 import { generateKPIs, profileData, generateInsights } from "@/lib/analytics-engine";
 import type { ColumnMeta, DataProfile } from "@/db/schema";
 
@@ -37,7 +38,8 @@ export async function GET(
       const { profile, columnMetas } = profileData(filteredRows, sourceMetas.map((m) => m.name));
 
       // Recompute KPIs on filtered data
-      const filteredKPIs = generateKPIs(filteredRows, profile, columnMetas, dataset.domain || "");
+      const plan = await getDashboardPlan(dataset.id, sourceMetas, profile, dataset.domain || "");
+      const filteredKPIs = plan ? planKpis(plan, filteredRows, profile) : generateKPIs(filteredRows, profile, columnMetas, dataset.domain || "");
 
       // Compute columnValues from allRows (unfiltered for slicer options)
       const valCols = [...(profile?.categoricalColumns || []), ...(profile?.locationColumns || [])];
@@ -52,6 +54,7 @@ export async function GET(
       return NextResponse.json({
         ...meta,
         kpis: filteredKPIs,
+        dashboardPlan: plan ? { engine: plan.engine, domain: plan.domain } : { engine: "local" },
         profile, columns: columnMetas,
         insights: generateInsights(filteredRows, profile, columnMetas, dataset.domain || ""),
         rowCount: filteredRaw.length,
@@ -64,7 +67,8 @@ export async function GET(
     const activeRows = await datasetRows(dataset);
     const recomputed = profileData(activeRows, ((dataset.columns || []) as ColumnMeta[]).map((m) => m.name));
     dataset.columns = recomputed.columnMetas; dataset.profile = recomputed.profile;
-    dataset.kpis = generateKPIs(activeRows, recomputed.profile, recomputed.columnMetas, dataset.domain || "");
+    const plan = await getDashboardPlan(dataset.id, recomputed.columnMetas, recomputed.profile, dataset.domain || "");
+    dataset.kpis = plan ? planKpis(plan, activeRows, recomputed.profile) : generateKPIs(activeRows, recomputed.profile, recomputed.columnMetas, dataset.domain || "");
     dataset.insights = generateInsights(activeRows, recomputed.profile, recomputed.columnMetas, dataset.domain || "");
     // Include distinct values for slicer columns (from raw data)
     const allRows = await datasetRows(dataset, "raw");
@@ -78,7 +82,7 @@ export async function GET(
 
     // Strip raw data from response to keep initial load fast
     const { rawData, cleanedData, ...meta } = dataset;
-    return NextResponse.json({ ...meta, filtered: false, columnValues });
+    return NextResponse.json({ ...meta, filtered: false, columnValues, dashboardPlan: plan ? { engine: plan.engine, domain: plan.domain } : { engine: "local" } });
   } catch {
     return NextResponse.json(
       { error: "Failed to fetch dataset" },
