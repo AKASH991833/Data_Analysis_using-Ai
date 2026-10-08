@@ -646,10 +646,12 @@ export interface ChartRecommendation {
   xKey?: string;
   yKey?: string;
   dataKey?: string;
+  /** Column a click on this chart should filter the dashboard by (categorical charts only). */
+  filterCol?: string;
   data: Record<string, unknown>[];
 }
 
-export function generateChartRecommendations(
+function baseChartRecommendations(
   rows: Record<string, unknown>[],
   profile: DataProfile,
   columnMetas: ColumnMeta[]
@@ -671,8 +673,10 @@ export function generateChartRecommendations(
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10);
 
+    const longLabels = sorted.some(([k]) => k.length > 12) || sorted.length > 6;
     charts.push({
-      type: "bar",
+      type: longLabels ? "hbar" : "bar",
+      filterCol: catCol,
       title: `${formatColName(numCol)} by ${formatColName(catCol)}`,
       xKey: catCol,
       yKey: numCol,
@@ -686,10 +690,13 @@ export function generateChartRecommendations(
       profile.statusColumns[0] || profile.categoricalColumns[0];
     const meta = columnMetas.find((c) => c.name === catCol);
     if (meta && meta.topValues && meta.uniqueCount <= 15) {
+      const small = meta.uniqueCount <= 6;
       charts.push({
-        type: "pie",
+        type: small ? "pie" : "hbar",
+        filterCol: catCol,
         title: `${formatColName(catCol)} Distribution`,
         dataKey: "count",
+        ...(small ? {} : { xKey: "name", yKey: "count" }),
         data: meta.topValues.map((tv) => ({
           name: tv.value,
           count: tv.count,
@@ -774,6 +781,43 @@ export function generateChartRecommendations(
   return charts;
 }
 
+export function generateChartRecommendations(
+  rows: Record<string, unknown>[],
+  profile: DataProfile,
+  columnMetas: ColumnMeta[]
+): ChartRecommendation[] {
+  const charts = baseChartRecommendations(rows, profile, columnMetas);
+  // Extra breakdowns: a second categorical dimension and the distribution of the main measure
+  const measureCol = profile.revenueColumns.find((c) => profile.numericColumns.includes(c)) ||
+    profile.numericColumns.find((c) => columnMetas.find((m) => m.name === c)?.semanticType !== "identifier");
+  if (measureCol) {
+    const used = new Set(charts.map((c) => c.filterCol).filter(Boolean));
+    const dims = profile.categoricalColumns.filter((c) => !used.has(c) && (columnMetas.find((m) => m.name === c)?.uniqueCount ?? 99) <= 25 && (columnMetas.find((m) => m.name === c)?.uniqueCount ?? 0) >= 2).slice(0, 2);
+    for (const dim of dims) {
+      const g = new Map<string, number>();
+      for (const row of rows) { const k = String(row[dim] ?? "Unknown"); g.set(k, (g.get(k) || 0) + (parseNumeric(row[measureCol]) ?? 0)); }
+      const top = [...g.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+      charts.push({ type: "hbar", filterCol: dim, title: `${formatColName(measureCol)} by ${formatColName(dim)}`, xKey: dim, yKey: measureCol,
+        data: top.map(([k, v]) => ({ [dim]: k, [measureCol]: Math.round(v * 100) / 100 })) });
+    }
+    const nums = rows.map((r) => parseNumeric(r[measureCol])).filter((n): n is number => n !== null);
+    if (nums.length >= 20) {
+      let lo = Infinity, hi = -Infinity;
+      for (const n of nums) { if (n < lo) lo = n; if (n > hi) hi = n; }
+      if (hi > lo) {
+        const bins = 10, step = (hi - lo) / bins;
+        const counts = new Array(bins).fill(0) as number[];
+        for (const n of nums) counts[Math.min(bins - 1, Math.floor((n - lo) / step))]++;
+        const fmt = (n: number) => Math.abs(n) >= 1000 ? `${Math.round(n / 100) / 10}k` : String(Math.round(n * 10) / 10);
+        charts.push({ type: "bar", title: `${formatColName(measureCol)} Distribution`, xKey: "range", yKey: "count",
+          data: counts.map((c, i) => ({ range: `${fmt(lo + i * step)}-${fmt(lo + (i + 1) * step)}`, count: c })) });
+      }
+    }
+  }
+
+  return charts;
+}
+
 // ─── NATURAL LANGUAGE QUERY ───────────────────────────────────────
 
 export type QueryPlan = {
@@ -850,4 +894,4 @@ export function processNLQuery(question: string, rows: Record<string, unknown>[]
   if (!operation) return { answer: "Local queries support count, sum, average, median, min/max, top, distribution and monthly totals with one exact-equality filter. Name the measure and group columns. No calculation was run." };
   const groupBy = operation === "trend" ? (groups.find((m) => m.type === "date")?.name || (profile.dateColumns.length === 1 ? profile.dateColumns[0] : undefined)) : groups.length === 1 ? groups[0].name : undefined;
   return executeQueryPlan({ operation, column, groupBy, filters }, rows, metas);
-        }
+}
