@@ -219,7 +219,7 @@ export function LandingView({ onNavigate }: LandingViewProps) {
                 <input
                   id="file-upload"
                   type="file"
-                  className="hidden"
+                  className="sr-only"
                   accept=".csv,.xlsx,.json,.tsv,.txt"
                   onChange={onFileSelect}
                 />
