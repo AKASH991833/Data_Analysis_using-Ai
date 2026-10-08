@@ -13,6 +13,8 @@ import {
 import type { KPI, Insight } from "@/db/schema";
 import { formatNumber, cn } from "@/lib/utils";
 import { ExcelChartPro } from "@/components/ExcelChartPro";
+import { FilterChips } from "@/components/FilterChips";
+import { ShareButton } from "@/components/ShareButton";
 import { DateRangeFilter, AutoRefresh, ComparisonToggle } from "@/components/DashboardControls";
 import { useTheme } from "@/components/ThemeProvider";
 import {
@@ -38,7 +40,7 @@ interface FullDashboardData {
 }
 
 interface ChartRec {
-  type: string; title: string; xKey?: string; yKey?: string; dataKey?: string;
+  type: string; title: string; xKey?: string; yKey?: string; dataKey?: string; filterCol?: string;
   data: Record<string, unknown>[];
 }
 
@@ -106,8 +108,8 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
   const [savingLayout, setSavingLayout] = useState(false);
   const [showAllKpis, setShowAllKpis] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
-  const [slicerCategory, setSlicerCategory] = useState("All");
-  const [slicerRegion, setSlicerRegion] = useState("All");
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [baseValues, setBaseValues] = useState<Record<string, string[]>>({});
   const [mountTime] = useState(() => performance.now());
   const [loadTime, setLoadTime] = useState(0);
   const dashRef = useRef<HTMLDivElement>(null);
@@ -116,15 +118,10 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
 
   const fetchData = useCallback(async () => {
     const params = new URLSearchParams();
-    const p = profileRef.current;
-    if (slicerCategory !== "All" && p?.categoricalColumns?.[0]) {
-      params.set("filterCol", p.categoricalColumns[0]);
-      params.set("filterVal", slicerCategory);
-    }
-    if (slicerRegion !== "All" && p?.locationColumns?.[0]) {
-      params.set("filterCol2", p.locationColumns[0]);
-      params.set("filterVal2", slicerRegion);
-    }
+    Object.entries(filters).slice(0, 4).forEach(([c, v], i) => {
+      const sfx = i === 0 ? "" : String(i + 1);
+      params.set(`filterCol${sfx}`, c); params.set(`filterVal${sfx}`, v);
+    });
     params.set("period", datePeriod);
     const filterQs = params.toString();
     const dsUrl = `/api/datasets/${datasetId}${filterQs ? `?${filterQs}` : ""}`;
@@ -134,7 +131,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
       fetch(chUrl).then((r) => r.json()),
       fetch(`/api/dashboards?datasetId=${datasetId}`).then((r) => r.json()),
     ]);
-    if (ds.profile && !ds.filtered) profileRef.current = ds.profile;
+    if (ds.profile && !ds.filtered) { profileRef.current = ds.profile; if (ds.columnValues) setBaseValues(ds.columnValues); }
     if (ds.error || !ds.profile) { setLoadError(ds.error || "No profile available"); setLoading(false); return; }
     setLoadError(null);
     setData(ds);
@@ -167,7 +164,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
     setLastRefresh(new Date());
     setLoadTime(Math.round(performance.now() - mountTime));
     setLoading(false);
-  }, [datasetId, slicerCategory, slicerRegion, datePeriod, mountTime]);
+  }, [datasetId, filters, datePeriod, mountTime]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -225,6 +222,12 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
 
   const removeChart = useCallback((idx: number) => {
     setCharts((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  const onPoint = useCallback((col: string, val: string) => {
+    setFilters((p) => p[col]?.toLowerCase() === val.toLowerCase()
+      ? Object.fromEntries(Object.entries(p).filter(([k]) => k !== col))
+      : { ...p, [col]: val });
   }, []);
 
   // ⚠️ All hooks must be BEFORE the early return below
@@ -335,6 +338,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
           <AutoRefresh interval={refreshInterval} onChange={setRefreshInterval} />
           <ComparisonToggle enabled={compareMode} onChange={setCompareMode} />
           {compareMode && <span className="text-xs text-slate-500">Changes compare first and second halves of dated rows, not equal calendar periods.</span>}
+          <ShareButton dashboardId={dashboardId} />
           <button onClick={() => setEditMode(!editMode)}
             className={cn("flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs transition-all",
               editMode ? "bg-blue-500/15 text-blue-400 border-blue-500/30" : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10")}
@@ -346,25 +350,13 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
         </div>
       </div>
 
-      {/* ── POWER BI SLICER BAR ── */}
-      <div className="flex flex-wrap items-center gap-2 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/5">
-        <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mr-2">
-          <Filter className="w-3 h-3" />
-          SLICERS
-        </div>
-        <select value={slicerCategory} onChange={(e) => { setSlicerCategory(e.target.value); }}
-          className="px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-slate-300 outline-none focus:border-blue-500/30">
-          <option value="All">All Categories</option>
-          {(columnValues?.[profile.categoricalColumns[0]] || []).slice(0, 50).map((v: string) => <option key={v}>{v}</option>)}
-        </select>
-        <select value={slicerRegion} onChange={(e) => { setSlicerRegion(e.target.value); }}
-          className="px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-slate-300 outline-none focus:border-blue-500/30">
-          <option value="All">All Regions</option>
-          {(columnValues?.[profile.locationColumns[0]] || []).slice(0, 50).map((v: string) => <option key={v}>{v}</option>)}
-        </select>
+      {/* ── FILTER BAR ── */}
+      <FilterChips filters={filters} columns={Object.keys(Object.keys(baseValues).length ? baseValues : (columnValues || {}))} columnValues={Object.keys(baseValues).length ? baseValues : (columnValues || {})} onChange={setFilters} />
+      <div className="flex flex-wrap items-center gap-2 -mt-3 px-1">
         <select value={datePeriod} onChange={(e) => setDatePeriod(e.target.value)} className="px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-slate-300 outline-none focus:border-blue-500/30">
           <option value="all">All Time</option><option value="7d">Last 7 Days</option><option value="30d">Last 30 Days</option><option value="quarter">This Quarter</option><option value="year">This Year</option>
         </select>
+        <span className="text-[10px] text-slate-500">{rowCount.toLocaleString()} rows match{Object.keys(filters).length || datePeriod !== "all" ? " the current filters" : ""}</span>
         <div className="ml-auto flex items-center gap-2 text-[10px] text-slate-600">
           <Clock className="w-3 h-3" />
           Last refreshed: {lastRefresh.toLocaleTimeString()}
@@ -557,7 +549,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
                         <h3 className="text-sm font-semibold text-white">{orderedCharts[0].title}</h3>
                         <span className="text-[10px] text-slate-500 bg-white/5 px-2 py-0.5 rounded">{orderedCharts[0].type}</span>
                       </div>
-                      <ExcelChartPro chart={orderedCharts[0]} height={360} />
+                      <ExcelChartPro chart={orderedCharts[0]} height={360} onPointClick={onPoint} activeFilters={filters} />
                     </div>
                     {orderedCharts.length > 1 && (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -579,7 +571,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
                                 </div>
                               )}
                               <h3 className="text-xs font-semibold text-white mb-2 truncate">{chart.title}</h3>
-                              <ExcelChartPro chart={chart} height={size === "full" ? 320 : 220} />
+                              <ExcelChartPro chart={chart} height={size === "full" ? 320 : 220} onPointClick={onPoint} activeFilters={filters} />
                             </div>
                           );
                         })}
@@ -741,10 +733,10 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
                 <LineChart className="w-4 h-4 text-blue-400" /> Trend Analysis
               </h3>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {orderedCharts.filter((c) => c.type === "line" || c.type === "bar").slice(0, 4).map((chart, i) => (
+                {orderedCharts.filter((c) => c.type === "line" || c.type === "bar" || c.type === "hbar").slice(0, 4).map((chart, i) => (
                   <div key={i} className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
                     <h4 className="text-[10px] font-medium text-slate-400 mb-2">{chart.title}</h4>
-                    <ExcelChartPro chart={chart} height={200} />
+                    <ExcelChartPro chart={chart} height={200} onPointClick={onPoint} activeFilters={filters} />
                   </div>
                 ))}
               </div>
@@ -884,7 +876,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
                         <h4 className="text-[10px] font-medium text-slate-400 truncate">{chart.title}</h4>
                         <span className="text-[9px] text-slate-600 bg-white/5 px-1.5 py-0.5 rounded">{chart.type}</span>
                       </div>
-                      <ExcelChartPro chart={chart} height={200} />
+                      <ExcelChartPro chart={chart} height={200} onPointClick={onPoint} activeFilters={filters} />
                     </div>
                   ))}
                 </div>
