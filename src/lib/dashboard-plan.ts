@@ -175,4 +175,6 @@ export function planCharts(plan: DashboardPlan, rows: Record<string, unknown>[])
     }
   }
   return out;
-               }
+}
+
+// Planner is active only when GEMINI_ENABLED=true and GEMINI_API_KEY are set.
