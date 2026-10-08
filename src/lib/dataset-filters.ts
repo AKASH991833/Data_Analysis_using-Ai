@@ -2,7 +2,7 @@ import type { ColumnMeta } from "@/db/schema";
 
 export function filterDatasetRows(rows: Record<string, unknown>[], columns: ColumnMeta[], params: URLSearchParams, now = new Date()) {
   const filters: { column: string; value: string }[] = [];
-  for (const suffix of ["", "2"]) {
+  for (const suffix of ["", "2", "3", "4"]) {
     const column = params.get(`filterCol${suffix}`), value = params.get(`filterVal${suffix}`);
     if (column && value && value !== "All") {
       if (!columns.some((m) => m.name === column)) throw new Error("Unknown filter column");
@@ -20,4 +20,13 @@ export function filterDatasetRows(rows: Record<string, unknown>[], columns: Colu
     selected = selected.filter((r) => { const t = Date.parse(String(r[dateColumn])); return t >= start && t < end; });
   }
   return selected;
+}
+
+export function hasActiveFilters(params: URLSearchParams) {
+  for (const suffix of ["", "2", "3", "4"]) {
+    const c = params.get(`filterCol${suffix}`), v = params.get(`filterVal${suffix}`);
+    if (c && v && v !== "All") return true;
+  }
+  const period = params.get("period");
+  return !!period && period !== "all";
 }
