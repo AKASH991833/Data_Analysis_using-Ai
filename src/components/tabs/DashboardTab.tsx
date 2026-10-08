@@ -14,6 +14,7 @@ import type { KPI, Insight } from "@/db/schema";
 import { formatNumber, cn } from "@/lib/utils";
 import { ExcelChartPro } from "@/components/ExcelChartPro";
 import { FilterChips } from "@/components/FilterChips";
+import { ExecutiveBoard } from "@/components/ExecutiveBoard";
 import { ShareButton } from "@/components/ShareButton";
 import { DateRangeFilter, AutoRefresh, ComparisonToggle } from "@/components/DashboardControls";
 import { useTheme } from "@/components/ThemeProvider";
@@ -317,7 +318,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
   ];
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
+    <div className="max-w-[1600px] mx-auto space-y-4 animate-fade-in">
       {/* ── HEADER ── */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -461,241 +462,8 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
 
         {/* ── OVERVIEW VIEW ── */}
         {activeView === "overview" && (
-          <>
-            {/* Power BI-style KPI Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-              {kpiData.map((kpi, i) => {
-                const Icon = iconMap[kpi.icon || "chart"] || BarChart3;
-                const isPositive = kpi.change !== undefined && kpi.change > 0;
-                const isNegative = kpi.change !== undefined && kpi.change < 0;
-                const cardBg = isPositive ? "from-emerald-500/10 to-emerald-500/5" : isNegative ? "from-red-500/10 to-red-500/5" : "from-blue-500/10 to-blue-500/5";
-                const borderColor = isPositive ? "border-emerald-500/20" : isNegative ? "border-red-500/20" : "border-blue-500/20";
-                const alert = computedAlerts[i];
-                return (
-                  <div key={i} className={`group relative p-4 rounded-xl bg-gradient-to-br ${cardBg} border ${borderColor} animate-slide-up transition-all hover:scale-[1.02] hover:shadow-lg cursor-default overflow-hidden`}
-                    style={{ animationDelay: `${i * 60}ms` }}>
-                    {alert && (
-                      <div className={cn("absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center shadow-lg",
-                        alert.level === "critical" ? "bg-red-500" : alert.level === "warning" ? "bg-amber-500" : "bg-blue-500")}>
-                        <Gauge className="w-3 h-3 text-white" />
-                      </div>
-                    )}
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full blur-2xl" />
-                    <div className="relative">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${isPositive ? 'from-emerald-500 to-green-600' : isNegative ? 'from-red-500 to-rose-600' : 'from-blue-500 to-indigo-600'} flex items-center justify-center shadow-lg`}>
-                          <Icon className="w-4 h-4 text-white" />
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {isPositive && <TrendingUp className="w-3 h-3 text-emerald-400" />}
-                          {isNegative && <TrendingDown className="w-3 h-3 text-red-400" />}
-                          {kpi.change !== undefined && kpi.change !== 0 && (
-                            <span className={cn("text-[10px] font-semibold tabular-nums", isPositive ? "text-emerald-400" : "text-red-400")}>
-                              {isPositive ? "+" : ""}{kpi.change}%
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-[10px] text-slate-500 mb-0.5 truncate">{kpi.name}</p>
-                      <p className="text-xl font-bold text-white tabular-nums">
-                        {typeof kpi.value === "number"
-                          ? <AnimatedCounter value={kpi.value} duration={800 + i * 100} />
-                          : kpi.value}
-                      </p>
-                      {alert && (
-                        <div className="mt-1 flex items-center gap-1">
-                          <span className={cn("text-[8px] font-medium px-1.5 py-0.5 rounded-full",
-                            alert.level === "critical" ? "bg-red-500/15 text-red-400" :
-                            alert.level === "warning" ? "bg-amber-500/15 text-amber-400" : "bg-blue-500/15 text-blue-400")}>
-                            {alert.message}
-                          </span>
-                        </div>
-                      )}
-                      {kpi.change !== undefined && (
-                        <div className="mt-2 flex items-center gap-1.5">
-                          <div className={`flex-1 h-1 rounded-full ${isPositive ? 'bg-emerald-500/30' : isNegative ? 'bg-red-500/30' : 'bg-blue-500/30'}`}>
-                            <div className={`h-full rounded-full ${isPositive ? 'bg-emerald-400' : isNegative ? 'bg-red-400' : 'bg-blue-400'}`}
-                              style={{ width: `${Math.min(Math.abs(kpi.change || 0) * 3, 100)}%` }} />
-                          </div>
-                          <span className={`text-[8px] font-medium ${isPositive ? 'text-emerald-500' : 'text-red-500'}`}>
-                            vs target
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {kpis.length > 5 && (
-              <button onClick={() => setShowAllKpis(!showAllKpis)}
-                className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 mx-auto"
-              >{showAllKpis ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />} {showAllKpis ? "Show less" : `Show all ${kpis.length} KPIs`}</button>
-            )}
-
-            {/* Main Chart + Sidebar */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 space-y-6">
-                {/* Charts grid */}
-                {orderedCharts.length > 0 && (
-                  <>
-                    <div className={cn("glass-card p-5 animate-slide-up relative group", editMode && "border-blue-500/20")}>
-                      {editMode && (
-                        <div className="absolute top-3 right-3 z-10 flex items-center gap-1">
-                          <button onClick={() => moveChart(0, 1)} className="p-1 rounded bg-white/10 text-slate-400 hover:text-white" title="Move"><GripVertical className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => removeChart(0)} className="p-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30" title="Remove"><X className="w-3.5 h-3.5" /></button>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-semibold text-white">{orderedCharts[0].title}</h3>
-                        <span className="text-[10px] text-slate-500 bg-white/5 px-2 py-0.5 rounded">{orderedCharts[0].type}</span>
-                      </div>
-                      <ExcelChartPro chart={orderedCharts[0]} height={360} onPointClick={onPoint} activeFilters={filters} />
-                    </div>
-                    {orderedCharts.length > 1 && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {orderedCharts.slice(1, 5).map((chart, ci) => {
-                          const idx = ci + 1;
-                          const size = chartSizes[idx] || "1";
-                          return (
-                            <div key={idx} className={cn("glass-card p-4 animate-slide-up relative group", 
-                              editMode && "border-blue-500/20",
-                              size === "full" && "md:col-span-2"
-                            )} style={{ animationDelay: `${ci * 80}ms` }}>
-                              {editMode && (
-                                <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
-                                  <button onClick={() => toggleChartSize(idx)}
-                                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-slate-400 hover:text-white"
-                                  ><Layout className="w-3 h-3" />{size}</button>
-                                  {idx > 1 && <button onClick={() => moveChart(idx, idx - 1)} className="p-1 rounded bg-white/10 text-slate-400 hover:text-white"><GripVertical className="w-3 h-3" /></button>}
-                                  <button onClick={() => removeChart(idx)} className="p-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30"><X className="w-3 h-3" /></button>
-                                </div>
-                              )}
-                              <h3 className="text-xs font-semibold text-white mb-2 truncate">{chart.title}</h3>
-                              <ExcelChartPro chart={chart} height={size === "full" ? 320 : 220} onPointClick={onPoint} activeFilters={filters} />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* Right Panel */}
-              <div className="space-y-4">
-                {/* Quality */}
-                <div className="glass-card p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center">
-                      <Shield className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-semibold text-white">Data Quality</h3>
-                      <p className="text-[9px] text-slate-500">Overall score</p>
-                    </div>
-                  </div>
-                  <div className="relative w-32 h-32 mx-auto mb-4">
-                    <svg className="w-32 h-32 -rotate-90" viewBox="0 0 100 100">
-                      <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
-                      <circle cx="50" cy="50" r="42" fill="none" stroke={qColor} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${(profile.qualityScore / 100) * 263.9} 263.9`}
-                        className="transition-all duration-1000" />
-                      <defs>
-                        <linearGradient id="qGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor={qColor} />
-                          <stop offset="100%" stopColor={qColor} stopOpacity="0.5" />
-                        </linearGradient>
-                      </defs>
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="text-center">
-                        <span className="text-3xl font-bold text-white tabular-nums"><AnimatedCounter value={profile.qualityScore} /></span>
-                        <p className="text-[9px] text-slate-500">/ 100</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <QualityBar label="Completeness" value={profile.completeness} color="#4472C4" />
-                    <QualityBar label="Consistency" value={profile.consistency} color="#5B9BD5" />
-                    <QualityBar label="Uniqueness" value={profile.uniqueness} color="#ED7D31" />
-                  </div>
-                </div>
-
-                {/* Auto-Cleaning */}
-                <div className="glass-card p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
-                      <Zap className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-semibold text-white">Auto-Cleaning</h3>
-                      <p className="text-[9px] text-slate-500">Data preparation</p>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/5">
-                      <span className="text-xs text-slate-400 flex items-center gap-2"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> Issues found</span>
-                      <span className="text-sm font-bold text-amber-400">{(cleaningReport?.totalIssues || 0).toLocaleString()}</span>
-                    </div>
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/5">
-                      <span className="text-xs text-slate-400 flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> Issues fixed</span>
-                      <span className="text-sm font-bold text-emerald-400">{(cleaningReport?.fixedIssues || 0).toLocaleString()}</span>
-                    </div>
-                    <div className="pt-2 border-t border-white/5 space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-slate-500">Before</span>
-                        <div className="flex items-center gap-2">
-                          <div className="w-20 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full bg-red-500/50" style={{ width: `${cleaningReport?.qualityBefore || 0}%` }} />
-                          </div>
-                          <span className="text-[10px] font-semibold text-slate-400">{cleaningReport?.qualityBefore || 0}%</span>
-                        </div>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-slate-500">After</span>
-                        <div className="flex items-center gap-2">
-                          <div className="w-20 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${cleaningReport?.qualityAfter || 0}%` }} />
-                          </div>
-                          <span className="text-[10px] font-semibold text-emerald-400">{cleaningReport?.qualityAfter || 0}%</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Top Insights */}
-                {insights.length > 0 && (
-                  <div className="glass-card p-5">
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
-                        <Brain className="w-4 h-4 text-white" />
-                      </div>
-                      <div>
-                        <h3 className="text-xs font-semibold text-white">AI Insights</h3>
-                        <p className="text-[9px] text-slate-500">Top discoveries</p>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      {insights.slice(0, 4).map((ins, i) => (
-                        <div key={i} className="p-3 rounded-xl bg-white/[0.02] border border-white/5 hover:border-purple-500/20 transition-all group cursor-default">
-                          <div className="flex items-start gap-2.5">
-                            <div className={cn("w-2 h-2 rounded-full mt-1 flex-shrink-0 shadow-sm",
-                              ins.impact === "high" ? "bg-red-400 shadow-red-400/20" :
-                              ins.impact === "medium" ? "bg-amber-400 shadow-amber-400/20" : "bg-emerald-400 shadow-emerald-400/20")} />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-white group-hover:text-blue-300 transition-colors">{ins.title}</p>
-                              <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed line-clamp-2">{ins.description}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
+          <ExecutiveBoard kpis={kpiData} charts={orderedCharts} profile={profile} insights={insights}
+            cleaning={cleaningReport} filters={filters} onPoint={onPoint} />
         )}
 
         {/* ── PERFORMANCE VIEW ── */}
@@ -1046,4 +814,4 @@ function DistBar({ label, count, total, color }: { label: string; count: number;
       <span className="text-[10px] text-slate-500 font-mono w-8 text-right">{count}</span>
     </div>
   );
-          }
+      }
