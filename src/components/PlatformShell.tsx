@@ -27,8 +27,8 @@ export function PlatformShell() {
         onNavigate={navigateTo}
       />
       <main
-        className={`flex-1 overflow-y-auto transition-all duration-300 ${
-          sidebarCollapsed ? "ml-16" : "ml-64"
+        className={`flex-1 min-w-0 overflow-y-auto transition-all duration-300 ${
+          sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"
         }`}
       >
         {currentView === "landing" && <LandingView onNavigate={navigateTo} />}
