@@ -22,6 +22,9 @@ export const pool =
     user: DB_USER,
     password: DB_PASSWORD || "",
     database: DB_NAME,
+    ssl: process.env.DB_SSL === "true" ? { rejectUnauthorized: true } : undefined,
+    connectionLimit: 3,
+    connectTimeout: 15000,
   });
 
 if (process.env.NODE_ENV !== "production") {
