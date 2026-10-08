@@ -36,7 +36,7 @@ export async function POST(
     const { profile, columnMetas } = profileData(rows, ((dataset.columns || []) as ColumnMeta[]).map((m) => m.name));
 
     let result;
-    try { result = await queryWithGemini(question, rows, columnMetas); } catch { /* Safe local fallback on service failure; no raw provider errors exposed. */ }
+    try { result = await queryWithGemini(question, rows, columnMetas); } catch (error) { console.warn("Gemini fallback", error instanceof Error ? error.name : "unknown"); /* No provider body or secrets logged. */ }
     result ??= { ...processNLQuery(question, rows, profile, columnMetas), engine: "local" };
 
     // Save query
