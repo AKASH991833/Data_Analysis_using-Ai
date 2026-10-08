@@ -126,7 +126,9 @@ export function planKpis(plan: DashboardPlan, rows: Record<string, unknown>[], p
   const colors = ["blue", "green", "amber", "purple", "cyan", "indigo"];
   return plan.kpis.map((k, i) => {
     const v = agg(k.op, rows, k.column);
-    const value: string | number = v === null ? "-" : k.format === "percent" ? `${r2(v)}%` : k.op === "count" || k.op === "distinct" ? Math.round(v) : Math.abs(v) >= 1e4 ? compact(v) : r2(v);
+    // A percent measure stored as a 0-1 fraction (0.12 = 12%) is scaled to 0-100 for display.
+    const fraction = k.format === "percent" && k.column ? rows.every((r) => { const n = parseNumeric(r[k.column as string]); return n === null || (n >= -1 && n <= 1); }) : false;
+    const value: string | number = v === null ? "-" : k.format === "percent" ? `${r2(fraction ? v * 100 : v)}%` : k.op === "count" || k.op === "distinct" ? Math.round(v) : Math.abs(v) >= 1e4 ? compact(v) : r2(v);
     let change: number | undefined;
     if (first.length && (k.op === "sum" || k.op === "average" || k.op === "count")) {
       const a = agg(k.op, first, k.column), b = agg(k.op, second, k.column);
