@@ -32,6 +32,7 @@ interface NLQueryTabProps {
 interface Message {
   role: "user" | "assistant";
   content: string;
+  engine?: string;
   chart?: {
     type: string;
     title: string;
@@ -107,6 +108,7 @@ export function NLQueryTab({ datasetId }: NLQueryTabProps) {
         role: "assistant",
         content: data.answer || "I couldn't process that query.",
         chart: data.chart,
+        engine: data.engine,
       };
       setMessages((prev) => [...prev, assistantMsg]);
     } catch {
@@ -185,6 +187,7 @@ export function NLQueryTab({ datasetId }: NLQueryTabProps) {
                 <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
                   {msg.content}
                 </p>
+                {msg.engine && <p className="mt-1 text-xs text-slate-500">{msg.engine === "gemini" ? "Gemini plan · calculation on your data" : "Local calculation · Gemini unavailable"}</p>}
                 {msg.chart && (
                   <div className="mt-3 h-48">
                     <MiniChart chart={msg.chart} />
