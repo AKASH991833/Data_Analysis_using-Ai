@@ -129,10 +129,10 @@ export function NLQueryTab({ datasetId }: NLQueryTabProps) {
           </div>
           <div>
             <h3 className="text-sm font-semibold text-white">
-              Ask AI Anything
+              Ask About Your Data
             </h3>
             <p className="text-[10px] text-slate-500">
-              Natural language analytics powered by AI
+              Local queries; optional Gemini query planning when enabled
             </p>
           </div>
         </div>
