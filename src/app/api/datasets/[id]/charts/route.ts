@@ -1,3 +1,4 @@
+import { datasetRows } from "@/lib/row-store";
 import { filterDatasetRows } from "@/lib/dataset-filters";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
@@ -24,7 +25,7 @@ export async function GET(
       return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
     }
 
-    let rows = (dataset.cleanedData || dataset.rawData || []) as Record<string, unknown>[];
+    let rows = await datasetRows(dataset);
 
     rows = filterDatasetRows(rows, (dataset.columns || []) as ColumnMeta[], searchParams);
 
