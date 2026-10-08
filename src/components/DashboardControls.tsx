@@ -12,7 +12,6 @@ export const PERIODS = [
   { label: "Last 30 Days", value: "30d" },
   { label: "This Quarter", value: "quarter" },
   { label: "This Year", value: "year" },
-  { label: "Custom", value: "custom" },
 ] as const;
 
 interface DateRangeFilterProps {
