@@ -660,7 +660,9 @@ function baseChartRecommendations(
 
   // Bar chart: top categorical by numeric
   if (profile.categoricalColumns.length > 0 && profile.numericColumns.length > 0) {
-    const catCol = profile.categoricalColumns[0];
+    // Prefer a readable dimension (2-30 distinct values, not an id) over the first categorical column.
+    const dimMeta = (c: string) => columnMetas.find((m) => m.name === c);
+    const catCol = profile.categoricalColumns.find((c) => { const m = dimMeta(c); return m && m.semanticType !== "identifier" && m.uniqueCount >= 2 && m.uniqueCount <= 30; }) || profile.categoricalColumns[0];
     const numCol = profile.revenueColumns.find((c) => profile.numericColumns.includes(c)) || profile.numericColumns.find((c) => columnMetas.find((m) => m.name === c)?.semanticType !== "identifier");
     if (!numCol) return charts;
     const groups = new Map<string, number>();
