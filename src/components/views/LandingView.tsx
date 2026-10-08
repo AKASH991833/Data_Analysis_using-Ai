@@ -17,6 +17,71 @@ import {
   Loader2,
 } from "lucide-react";
 
+const MAX_ROWS = 100000;
+const BATCH_BYTES = 2_500_000;
+const MAX_SEND_BYTES = 85_000_000;
+
+type LargeResult = { id: string; limitInfo?: { totalRows: number; analyzedRows: number; truncated: boolean } };
+
+// Streams a big delimited file in the browser (nothing larger than ~2.5MB is ever sent),
+// forwards the first MAX_ROWS rows in batches, and counts every row in the file.
+async function uploadLargeFile(file: File, onProgress: (pct: number, status: string) => void): Promise<LargeResult> {
+  const Papa = (await import("papaparse")).default;
+  const uploadId = crypto.randomUUID();
+  const post = async (body: Record<string, unknown>) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await fetch("/api/datasets/chunked", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uploadId, ...body }) });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok) return json;
+        if (res.status < 500 || attempt >= 2) throw Object.assign(new Error(json.error || "Upload failed"), { fatal: true, full: json.full });
+      } catch (e) {
+        if ((e as { fatal?: boolean }).fatal || attempt >= 2) throw e;
+      }
+      await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+    }
+  };
+  let batch: Record<string, unknown>[] = [];
+  let batchBytes = 0, sentBytes = 0, sentRows = 0, totalRows = 0, idx = 0, full = false;
+  let chain: Promise<unknown> = Promise.resolve();
+  let failure: unknown = null;
+  const flush = () => {
+    if (!batch.length) return;
+    const rows = batch, i = idx++;
+    batch = []; batchBytes = 0;
+    chain = chain.then(() => (failure ? undefined : post({ op: "batch", idx: i, rows }))).catch((e) => {
+      if ((e as { full?: boolean }).full) full = true; else failure = e;
+    });
+  };
+  await new Promise<void>((resolve, reject) => {
+    Papa.parse<Record<string, unknown>>(file, {
+      header: true, skipEmptyLines: true, dynamicTyping: false,
+      delimiter: file.name.toLowerCase().endsWith(".tsv") ? "\t" : ",",
+      chunkSize: 4 * 1024 * 1024,
+      chunk: (res) => {
+        for (const row of res.data) {
+          totalRows++;
+          if (sentRows < MAX_ROWS && !full && sentBytes < MAX_SEND_BYTES) {
+            const len = JSON.stringify(row).length;
+            batch.push(row); batchBytes += len; sentBytes += len; sentRows++;
+            if (batchBytes >= BATCH_BYTES) flush();
+          }
+        }
+        const cursor = res.meta.cursor || 0;
+        onProgress(10 + Math.min(65, Math.round((cursor / file.size) * 65)), `Reading file... ${Math.min(100, Math.round((cursor / file.size) * 100))}% (${totalRows.toLocaleString()} rows)`);
+      },
+      complete: () => resolve(),
+      error: (err: Error) => reject(err),
+    });
+  });
+  flush();
+  await chain;
+  if (failure) throw failure;
+  if (totalRows === 0) throw new Error("No data found in file");
+  onProgress(85, "Analyzing & generating insights...");
+  return post({ op: "finish", fileName: file.name, sizeBytes: file.size, totalRows });
+}
+
 interface LandingViewProps {
   onNavigate: (view: ViewType, datasetId?: string) => void;
 }
@@ -35,7 +100,22 @@ export function LandingView({ onNavigate }: LandingViewProps) {
       setUploadStatus("Reading file...");
 
       try {
-        if (file.size > 4 * 1024 * 1024) throw new Error("This free hosted app accepts files up to 4MB. Split a larger file before uploading.");
+        const ext = file.name.split(".").pop()?.toLowerCase() || "";
+        if (file.size > 3 * 1024 * 1024) {
+          if (!["csv", "tsv", "txt"].includes(ext)) throw new Error("Files over 3MB must be CSV, TSV or TXT (save big Excel/JSON files as CSV first).");
+          const data = await uploadLargeFile(file, (pct, status) => { setUploadProgress(pct); setUploadStatus(status); });
+          setUploadProgress(100);
+          setUploadStatus("Analysis complete!");
+          if (data.limitInfo?.truncated) {
+            toast("warning",
+              `File has ${data.limitInfo.totalRows.toLocaleString()} rows. ` +
+              `Only first ${data.limitInfo.analyzedRows.toLocaleString()} were loaded for analysis. ` +
+              `The remaining ${(data.limitInfo.totalRows - data.limitInfo.analyzedRows).toLocaleString()} rows are not available for analysis.`
+            );
+          }
+          setTimeout(() => { onNavigate("dataset", data.id); }, 600);
+          return;
+        }
         const formData = new FormData();
         formData.append("file", file);
 
