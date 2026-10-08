@@ -59,9 +59,10 @@ export async function POST() {
   try {
     const { rows, columns, name } = generateSampleData();
 
-    const { columnMetas, profile } = profileData(rows, columns);
+    const { columnMetas: rawMetas } = profileData(rows, columns);
     const { domain, confidence } = detectDomain(columns, rows);
-    const { cleanedRows, report } = cleanData(rows, columnMetas);
+    const { cleanedRows, report } = cleanData(rows, rawMetas);
+    const { columnMetas, profile } = profileData(cleanedRows, columns);
     const kpis = generateKPIs(cleanedRows, profile, columnMetas, domain);
     const insights = generateInsights(cleanedRows, profile, columnMetas, domain);
 
