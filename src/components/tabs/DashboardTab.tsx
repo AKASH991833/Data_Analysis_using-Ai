@@ -94,6 +94,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
   const [data, setData] = useState<FullDashboardData | null>(null);
   const [charts, setCharts] = useState<ChartRec[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [datePeriod, setDatePeriod] = useState("all");
   const [refreshInterval, setRefreshInterval] = useState(0);
   const [compareMode, setCompareMode] = useState(false);
@@ -119,10 +120,12 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
     if (slicerCategory !== "All" && p?.categoricalColumns?.[0]) {
       params.set("filterCol", p.categoricalColumns[0]);
       params.set("filterVal", slicerCategory);
-    } else if (slicerRegion !== "All" && p?.locationColumns?.[0]) {
-      params.set("filterCol", p.locationColumns[0]);
-      params.set("filterVal", slicerRegion);
     }
+    if (slicerRegion !== "All" && p?.locationColumns?.[0]) {
+      params.set("filterCol2", p.locationColumns[0]);
+      params.set("filterVal2", slicerRegion);
+    }
+    params.set("period", datePeriod);
     const filterQs = params.toString();
     const dsUrl = `/api/datasets/${datasetId}${filterQs ? `?${filterQs}` : ""}`;
     const chUrl = `/api/datasets/${datasetId}/charts${filterQs ? `?${filterQs}` : ""}`;
@@ -131,7 +134,9 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
       fetch(chUrl).then((r) => r.json()),
       fetch(`/api/dashboards?datasetId=${datasetId}`).then((r) => r.json()),
     ]);
-    if (ds.profile) profileRef.current = ds.profile;
+    if (ds.profile && !ds.filtered) profileRef.current = ds.profile;
+    if (ds.error || !ds.profile) { setLoadError(ds.error || "No profile available"); setLoading(false); return; }
+    setLoadError(null);
     setData(ds);
     setCharts(ch);
 
@@ -162,9 +167,13 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
     setLastRefresh(new Date());
     setLoadTime(Math.round(performance.now() - mountTime));
     setLoading(false);
-  }, [datasetId, slicerCategory, slicerRegion]);
+  }, [datasetId, slicerCategory, slicerRegion, datePeriod, mountTime]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.resolve().then(() => { if (!controller.signal.aborted) void fetchData(); });
+    return () => controller.abort();
+  }, [fetchData]);
 
   useEffect(() => {
     if (refreshInterval <= 0) return;
@@ -220,11 +229,9 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
 
   // ⚠️ All hooks must be BEFORE the early return below
   const sparkData = useMemo(() => {
-    if (!charts[0]?.data?.length) return [];
-    return charts[0].data.slice(0, 30).map((r) => {
-      const v = parseFloat(String(r[charts[0].yKey || charts[0].dataKey || ""]));
-      return isNaN(v) ? 0 : v;
-    });
+    const line = charts.find((c) => c.type === "line" && c.xKey === "month");
+    if (!line?.data?.length) return [];
+    return line.data.map((r) => Number(r[line.yKey || ""])) .filter(Number.isFinite);
   }, [charts]);
 
   const distData = useMemo(() => {
@@ -251,6 +258,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
     } catch {}
   }, [data]);
 
+  if (loadError) return <p className="text-sm text-red-400 py-10">{loadError}</p>;
   if (loading || !data) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -278,7 +286,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
   const potentialGeoCols = [...locCols, ...catCols.filter((c) =>
     ["region", "country", "city", "state", "area", "zone", "territory"].some((kw) => c.toLowerCase().includes(kw))
   )];
-  if (potentialGeoCols.length && charts[0]?.data?.length) {
+  if (potentialGeoCols.length && charts[0]?.xKey === potentialGeoCols[0] && charts[0]?.data?.length) {
     const geoCol = potentialGeoCols[0];
     const numCol = charts[0]?.yKey || charts[0]?.dataKey || "";
     geoDataInline = charts[0].data.slice(0, 8).map((r) => ({
@@ -326,6 +334,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
           <DateRangeFilter value={datePeriod} onChange={setDatePeriod} />
           <AutoRefresh interval={refreshInterval} onChange={setRefreshInterval} />
           <ComparisonToggle enabled={compareMode} onChange={setCompareMode} />
+          {compareMode && <span className="text-xs text-slate-500">Changes compare first and second halves of dated rows, not equal calendar periods.</span>}
           <button onClick={() => setEditMode(!editMode)}
             className={cn("flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs transition-all",
               editMode ? "bg-blue-500/15 text-blue-400 border-blue-500/30" : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10")}
@@ -371,7 +380,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
               <span className="text-white font-medium">Smart Narrative: </span>
               {kpis[0]?.name} reached <span className="text-white font-semibold">{typeof kpis[0]?.value === 'number' ? kpis[0].value.toLocaleString() : kpis[0]?.value}</span>
               {kpis[0]?.change !== undefined && (
-                <span> — {kpis[0].change > 0 ? 'up' : 'down'} <span className={kpis[0].change > 0 ? 'text-emerald-400' : 'text-red-400'}>{Math.abs(kpis[0].change)}%</span> from previous period</span>
+                <span> — {kpis[0].change > 0 ? 'up' : 'down'} <span className={kpis[0].change > 0 ? 'text-emerald-400' : 'text-red-400'}>{Math.abs(kpis[0].change)}%</span> between dated row halves</span>
               )}
               . Dataset contains <span className="text-white font-semibold">{rowCount.toLocaleString()}</span> rows across <span className="text-white font-semibold">{columnCount}</span> columns.
               {domain && <> Identified domain: <span className="text-purple-400">{domain}</span>.</>}
@@ -411,14 +420,14 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
                 {heroKpi.change !== undefined && (
                   <div className={cn("flex items-center gap-1.5 mt-2 text-sm font-medium", heroKpi.change > 0 ? "text-emerald-400" : "text-red-400")}>
                     {heroKpi.change > 0 ? <ArrowUpRight className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                    {Math.abs(heroKpi.change)}% vs previous period
+                    {Math.abs(heroKpi.change)}% between dated row halves
                   </div>
                 )}
               </div>
               <div className="flex items-center gap-4">
                 {sparkData.length > 0 && (
                   <div className="text-right">
-                    <p className="text-[10px] text-slate-500 mb-1">30-period trend</p>
+                    <p className="text-[10px] text-slate-500 mb-1">Monthly values (up to 12 months)</p>
                     <Sparkline data={sparkData} color="#4472C4" height={32} />
                   </div>
                 )}
@@ -903,7 +912,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
                 </div>
               </div>
               <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-                <p className="text-[10px] text-slate-500 mb-1">Confidence Score</p>
+                <p className="text-[10px] text-slate-500 mb-1">Linear fit R² (not forecast accuracy) Score</p>
                 <p className="text-2xl font-bold text-white">{forecast.confidence}%</p>
                 <div className="mt-2 h-1.5 bg-white/5 rounded-full overflow-hidden">
                   <div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-blue-500" style={{ width: `${forecast.confidence}%` }} />
@@ -1000,8 +1009,9 @@ function forecastLinear(data: number[], periods: number = 1): { next: number | n
   const slope = den !== 0 ? num / den : 0;
   const intercept = yMean - slope * xMean;
   const next = slope * (n - 1 + periods) + intercept;
-  const variance = data.reduce((a, b) => a + (b - (slope * indices[data.indexOf(b)] + intercept)) ** 2, 0) / n;
-  const rSquared = 1 - variance / (data.reduce((a, b) => a + (b - yMean) ** 2, 0) / n);
+  const variance = data.reduce((a, b, i) => a + (b - (slope * indices[i] + intercept)) ** 2, 0) / n;
+  const totalVariance = data.reduce((a, b) => a + (b - yMean) ** 2, 0) / n;
+  const rSquared = totalVariance === 0 ? 1 : 1 - variance / totalVariance;
   return {
     next: Math.round(next * 100) / 100,
     trend: slope > data.reduce((a, b) => a + b, 0) / n * 0.05 ? "up" : slope < -data.reduce((a, b) => a + b, 0) / n * 0.05 ? "down" : "stable",
@@ -1043,4 +1053,4 @@ function DistBar({ label, count, total, color }: { label: string; count: number;
       <span className="text-[10px] text-slate-500 font-mono w-8 text-right">{count}</span>
     </div>
   );
-}
+                    }
