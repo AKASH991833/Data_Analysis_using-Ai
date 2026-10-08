@@ -7,6 +7,7 @@ import {
   Percent, Copy, Check, ArrowUpDown, Search,
 } from "lucide-react";
 import type { ColumnMeta } from "@/db/schema";
+import { parseNumeric } from "@/lib/analytics-engine";
 import { cn } from "@/lib/utils";
 
 interface PivotTabProps {
@@ -118,9 +119,10 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
   const addField = useCallback((zone: DropZone, col: string) => {
     const isNumeric = numericCols.some((c) => c.name === col);
     const field: PivotField = isNumeric ? { column: col, aggregation: "sum" } : { column: col };
+    if (zone === "columns" && colFields.length > 0) return;
     const setter = zone === "rows" ? setRowFields : zone === "columns" ? setColFields : zone === "values" ? setValueFields : setFilterFields;
     setter((prev) => [...prev, field]);
-  }, [numericCols]);
+  }, [numericCols, colFields]);
 
   const removeField = useCallback((zone: DropZone, idx: number) => {
     const setter = zone === "rows" ? setRowFields : zone === "columns" ? setColFields : zone === "values" ? setValueFields : setFilterFields;
@@ -203,12 +205,12 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
         }
         for (const vf of valueFields) {
           const aggKey = `${colKey}||${vf.column}`;
-          const vals = subset.map((r) => parseFloat(String(r[vf.column])) || 0);
+          const vals = subset.map((r) => parseNumeric(r[vf.column])).filter((v): v is number => v !== null);
           let result = 0;
           switch (vf.aggregation) {
             case "sum": result = vals.reduce((a, b) => a + b, 0); break;
             case "avg": result = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0; break;
-            case "count": result = vals.length; break;
+            case "count": result = subset.length; break;
             case "min": result = vals.length ? Math.min(...vals) : 0; break;
             case "max": result = vals.length ? Math.max(...vals) : 0; break;
             default: result = vals.reduce((a, b) => a + b, 0);
@@ -217,12 +219,12 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
         }
       }
       for (const vf of valueFields) {
-        const allVals = group.map((r) => parseFloat(String(r[vf.column])) || 0);
+        const allVals = group.map((r) => parseNumeric(r[vf.column])).filter((v): v is number => v !== null);
         let result = 0;
         switch (vf.aggregation) {
           case "sum": result = allVals.reduce((a, b) => a + b, 0); break;
           case "avg": result = allVals.length ? allVals.reduce((a, b) => a + b, 0) / allVals.length : 0; break;
-          case "count": result = allVals.length; break;
+          case "count": result = group.length; break;
           case "min": result = allVals.length ? Math.min(...allVals) : 0; break;
           case "max": result = allVals.length ? Math.max(...allVals) : 0; break;
           default: result = allVals.reduce((a, b) => a + b, 0);
@@ -234,12 +236,12 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
     const grandTotals: Record<string, number> = {};
     const colTotals: Record<string, number> = {};
     for (const vf of valueFields) {
-      const allVals = allRows.map((r) => parseFloat(String(r[vf.column])) || 0);
+      const allVals = allRows.map((r) => parseNumeric(r[vf.column])).filter((v): v is number => v !== null);
       let result = 0;
       switch (vf.aggregation) {
         case "sum": result = allVals.reduce((a, b) => a + b, 0); break;
         case "avg": result = allVals.length ? allVals.reduce((a, b) => a + b, 0) / allVals.length : 0; break;
-        case "count": result = allVals.length; break;
+        case "count": result = allRows.length; break;
         case "min": result = allVals.length ? Math.min(...allVals) : 0; break;
         case "max": result = allVals.length ? Math.max(...allVals) : 0; break;
         default: result = allVals.reduce((a, b) => a + b, 0);
@@ -250,17 +252,15 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
     for (const colKey of colKeys) {
       for (const vf of valueFields) {
         const aggKey = `${colKey}||${vf.column}`;
-        let total = 0;
-        for (const rk of rowKeys) {
-          const ck = rowKeyFields.map((f) => rk.keys[f]).join("|||");
-          total += matrix[ck]?.[aggKey] || 0;
-        }
+        const subset = colKeyField ? allRows.filter((r) => String(r[colKeyField] ?? "(blank)") === colKey) : allRows;
+        const vals = subset.map((r) => parseNumeric(r[vf.column])).filter((v): v is number => v !== null);
+        const total = vf.aggregation === "count" ? subset.length : vf.aggregation === "avg" ? (vals.length ? vals.reduce((a,b) => a+b,0)/vals.length : 0) : vf.aggregation === "min" ? (vals.length ? vals.reduce((a,b) => Math.min(a,b)) : 0) : vf.aggregation === "max" ? (vals.length ? vals.reduce((a,b) => Math.max(a,b)) : 0) : vals.reduce((a,b) => a+b,0);
         colTotals[aggKey] = Math.round(total * 100) / 100;
       }
     }
 
     return { colKeys, rowKeys, matrix, grandTotals, colTotals };
-  }, [allRows, rowFields, colFields, valueFields, filterFields]);
+  }, [allRows, rowFields, colFields, valueFields]);
 
   const filteredRowKeys = useMemo(() => {
     if (!pivotResult) return [];
@@ -311,9 +311,9 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
     a.download = `pivot_${datasetId.slice(0, 8)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [pivotResult, rowFields, valueFields, colFields, datasetId]);
+  }, [pivotResult, rowFields, valueFields, datasetId]);
 
-  const DropZoneComp = ({ zone, label }: { zone: DropZone; label: string }) => {
+  const renderDropZone = (zone: DropZone, label: string) => {
     const fields = zone === "rows" ? rowFields : zone === "columns" ? colFields : zone === "values" ? valueFields : filterFields;
 
     return (
@@ -417,10 +417,10 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
 
       {/* Drop Zones */}
       <div className="grid grid-cols-2 gap-3">
-        <DropZoneComp zone="rows" label="Rows" />
-        <DropZoneComp zone="columns" label="Columns" />
-        <DropZoneComp zone="values" label="Values" />
-        <DropZoneComp zone="filters" label="Filters" />
+        {renderDropZone("rows", "Rows")}
+        {renderDropZone("columns", "Columns")}
+        {renderDropZone("values", "Values")}
+        <p className="text-xs text-slate-500">Pivot supports one column field; use the table filters for row filtering.</p>
       </div>
 
       {/* Pivot Table */}
