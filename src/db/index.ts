@@ -9,9 +9,6 @@ const {
   DB_NAME = "app_db",
 } = process.env;
 
-if (!DB_PASSWORD) {
-  throw new Error("DB_PASSWORD is required");
-}
 
 const globalForDb = globalThis as typeof globalThis & {
   __nexusMysqlPool?: mysql.Pool;
@@ -23,7 +20,7 @@ export const pool =
     host: DB_HOST,
     port: parseInt(DB_PORT),
     user: DB_USER,
-    password: DB_PASSWORD,
+    password: DB_PASSWORD || "",
     database: DB_NAME,
   });
 
