@@ -19,7 +19,7 @@ export const datasets = mysqlTable("datasets", {
   sizeBytes: int("size_bytes").default(0),
   domain: text("domain"),
   domainConfidence: float("domain_confidence"),
-  status: text("status").default("uploaded"),
+  status: varchar("status", { length: 32 }).default("uploaded"),
   columns: json("columns").$type<ColumnMeta[]>(),
   profile: json("profile").$type<DataProfile>(),
   rawData: json("raw_data").$type<Record<string, unknown>[]>(),
