@@ -123,19 +123,7 @@ export function InsightsTab({ insights }: InsightsTabProps) {
 
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"
-                            style={{
-                              width: `${insight.confidence * 100}%`,
-                            }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-slate-500">
-                          {(insight.confidence * 100).toFixed(0)}%
-                        </span>
-                      </div>
+                      <span className="text-[10px] text-slate-500">Computed summary, not an accuracy score</span>
                     </div>
 
                     {insight.action && (
