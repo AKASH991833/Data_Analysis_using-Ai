@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { datasets, queries } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
+import { queryWithGemini } from "@/lib/gemini-query";
 import { processNLQuery } from "@/lib/analytics-engine";
 import type { ColumnMeta, DataProfile } from "@/db/schema";
 
@@ -14,7 +15,7 @@ export async function POST(
     const { id } = await params;
     const { question } = await req.json();
 
-    if (!question || typeof question !== "string" || !question.trim()) {
+    if (!question || typeof question !== "string" || !question.trim() || question.length > 2000) {
       return NextResponse.json(
         { error: "Question is required" },
         { status: 400 }
@@ -35,7 +36,9 @@ export async function POST(
     const profile = dataset.profile as DataProfile;
     const columnMetas = (dataset.columns || []) as ColumnMeta[];
 
-    const result = processNLQuery(question, rows, profile, columnMetas);
+    let result;
+    try { result = await queryWithGemini(question, rows, columnMetas); } catch { /* Safe local fallback on service failure; no raw provider errors exposed. */ }
+    result ??= { ...processNLQuery(question, rows, profile, columnMetas), engine: "local" };
 
     // Save query
     await db.insert(queries).values({
