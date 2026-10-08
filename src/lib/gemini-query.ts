@@ -16,6 +16,15 @@ export function validateQueryPlan(value: unknown, columns: ColumnMeta[]): QueryP
   return plan as QueryPlan;
 }
 
+export function queryGuidance(columns: ColumnMeta[]): string {
+  const numeric = columns.filter((c) => c.type === "number");
+  const groups = columns.filter((c) => c.type === "string" && !c.isKey);
+  const examples = ["How many records are there?"];
+  if (numeric[0]) examples.push(`What is the total ${JSON.stringify(numeric[0].name)}?`);
+  if (numeric[0] && groups[0]) examples.push(`Rank ${JSON.stringify(groups[0].name)} by total ${JSON.stringify(numeric[0].name)}.`);
+  return `I can help calculate totals, averages, counts, rankings and distributions in this dataset. For a ranking, name both the group and the numeric measure; "top performers" alone does not say what to rank by. Try:\n${examples.map((e) => `- ${e}`).join("\n")}\nNo calculation was run for your last question.`;
+}
+
 export async function queryWithGemini(question: string, rows: Record<string, unknown>[], columns: ColumnMeta[]): Promise<({ answer: string; chart?: import("./analytics-engine").ChartRecommendation; engine: string; interpretedPlan?: QueryPlan }) | null> {
   if (process.env.GEMINI_ENABLED?.trim() !== "true" || !process.env.GEMINI_API_KEY) { console.warn(`Gemini configuration: enabled=${process.env.GEMINI_ENABLED?.trim() === "true"}, keyPresent=${Boolean(process.env.GEMINI_API_KEY)}`); return null; }
   const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
@@ -35,6 +44,6 @@ export async function queryWithGemini(question: string, rows: Record<string, unk
   const payload = await response.json();
   const text = payload.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") || "null";
   const plan = validateQueryPlan(JSON.parse(text), columns);
-  if (!plan) return { answer: "Gemini could not produce a supported, unambiguous query. No calculation was run.", engine: "gemini" };
+  if (!plan) return { answer: queryGuidance(columns), engine: "gemini" };
   return { ...executeQueryPlan(plan, rows, columns), engine: "gemini", interpretedPlan: plan };
 }
