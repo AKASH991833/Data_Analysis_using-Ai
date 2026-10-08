@@ -1,3 +1,4 @@
+import { datasetRows } from "@/lib/row-store";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { datasets, queries } from "@/db/schema";
@@ -32,7 +33,7 @@ export async function POST(
       return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
     }
 
-    const rows = (dataset.cleanedData || dataset.rawData || []) as Record<string, unknown>[];
+    const rows = await datasetRows(dataset);
     const { profile, columnMetas } = profileData(rows, ((dataset.columns || []) as ColumnMeta[]).map((m) => m.name));
 
     let result;
