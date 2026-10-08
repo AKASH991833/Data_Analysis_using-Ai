@@ -4,8 +4,8 @@ import { datasets, queries } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { queryWithGemini } from "@/lib/gemini-query";
-import { processNLQuery } from "@/lib/analytics-engine";
-import type { ColumnMeta, DataProfile } from "@/db/schema";
+import { processNLQuery, profileData } from "@/lib/analytics-engine";
+import type { ColumnMeta } from "@/db/schema";
 
 export async function POST(
   req: NextRequest,
@@ -33,8 +33,7 @@ export async function POST(
     }
 
     const rows = (dataset.cleanedData || dataset.rawData || []) as Record<string, unknown>[];
-    const profile = dataset.profile as DataProfile;
-    const columnMetas = (dataset.columns || []) as ColumnMeta[];
+    const { profile, columnMetas } = profileData(rows, ((dataset.columns || []) as ColumnMeta[]).map((m) => m.name));
 
     let result;
     try { result = await queryWithGemini(question, rows, columnMetas); } catch { /* Safe local fallback on service failure; no raw provider errors exposed. */ }
