@@ -31,7 +31,7 @@ export async function queryWithGemini(question: string, rows: Record<string, unk
       generationConfig: { responseMimeType: "application/json", temperature: 0 }
     })
   });
-  if (!response.ok) throw new Error("Gemini request unavailable");
+  if (!response.ok) { console.warn(`Gemini planner HTTP ${response.status}`); throw new Error("Gemini request unavailable"); }
   const payload = await response.json();
   const text = payload.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") || "null";
   const plan = validateQueryPlan(JSON.parse(text), columns);
