@@ -6,6 +6,7 @@ import { datasets } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { generateChartRecommendations, profileData } from "@/lib/analytics-engine";
 import type { ColumnMeta } from "@/db/schema";
+import { getDashboardPlan, planCharts } from "@/lib/dashboard-plan";
 
 export async function GET(
   req: NextRequest,
@@ -32,7 +33,9 @@ export async function GET(
     const names = ((dataset.columns || []) as ColumnMeta[]).map((m) => m.name);
     const { profile, columnMetas } = profileData(rows, names);
 
-    const charts = generateChartRecommendations(rows, profile, columnMetas);
+    const plan = await getDashboardPlan(dataset.id, (dataset.columns || []) as ColumnMeta[], profile, dataset.domain || "");
+    const planned = plan ? planCharts(plan, rows) : [];
+    const charts = planned.length >= 3 ? planned : generateChartRecommendations(rows, profile, columnMetas);
 
     return NextResponse.json(charts);
   } catch {
