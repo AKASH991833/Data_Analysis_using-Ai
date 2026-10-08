@@ -683,4 +683,4 @@ export function PivotTab({ datasetId, columns }: PivotTabProps) {
       )}
     </div>
   );
-              }
+}
