@@ -61,6 +61,7 @@ const colorMap: Record<string, string> = {
 // ─── ANIMATED COUNTER ───────────────────────────────────────
 function AnimatedCounter({ value, suffix = "", decimals = 0, duration = 1200 }: { value: number; suffix?: string; decimals?: number; duration?: number }) {
   const [display, setDisplay] = useState(0);
+  const places = decimals || (Math.abs(value) < 100 && value % 1 !== 0 ? 2 : 0);
   const ref = useRef<number | null>(null);
   useEffect(() => {
     const start = performance.now();
@@ -73,7 +74,7 @@ function AnimatedCounter({ value, suffix = "", decimals = 0, duration = 1200 }: 
     ref.current = requestAnimationFrame(animate);
     return () => { if (ref.current) cancelAnimationFrame(ref.current); };
   }, [value, duration]);
-  return <>{display.toFixed(decimals)}{suffix}</>;
+  return <>{display.toFixed(places)}{suffix}</>;
 }
 
 // ─── SPARKLINE ──────────────────────────────────────────────
@@ -1045,4 +1046,4 @@ function DistBar({ label, count, total, color }: { label: string; count: number;
       <span className="text-[10px] text-slate-500 font-mono w-8 text-right">{count}</span>
     </div>
   );
-        }
+          }
