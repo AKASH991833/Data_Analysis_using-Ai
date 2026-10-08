@@ -4,6 +4,13 @@ import { validSession } from "@/lib/session";
 // Single-user gate only, not user accounts or tenant isolation. Use TLS in production.
 export async function proxy(req: NextRequest) {
   if (req.nextUrl.pathname === "/login" || req.nextUrl.pathname === "/api/auth") return NextResponse.next();
+  // Public read-only share links: only these two paths, only reads. Everything else stays behind login.
+  const p = req.nextUrl.pathname;
+  if (/^\/share\/[A-Za-z0-9_-]+$/.test(p)) return NextResponse.next();
+  if (/^\/api\/share\/[A-Za-z0-9_-]+$/.test(p)) {
+    if (req.method === "GET" || req.method === "HEAD") return NextResponse.next();
+    return NextResponse.json({ error: "Read-only" }, { status: 405 });
+  }
   const username = process.env.APP_USERNAME;
   const password = process.env.APP_PASSWORD;
   if ((!username || !password) && process.env.NODE_ENV === "production") {
