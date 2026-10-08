@@ -59,3 +59,7 @@ This is **not a multi-user service**. Production fails closed without APP_USERNA
 Earlier versions published a database password. It is removed from current files but remains in Git history. Rotate it anywhere it was used; deleting a line does not revoke a secret.
 
 Dependencies were updated without `audit fix --force`. See `npm audit` for current results. Remaining advisories should be tracked rather than hidden; do not downgrade framework tooling just to quiet its audit report.
+
+## Free hosted deployment
+
+Vercel Hobby + TiDB Cloud Starter, no card. Keep TiDB monthly spending limit at $0; exhausting the free quota throttles the database instead of charging. TiDB requires TLS: set DB_SSL=true. Set private APP_USERNAME/APP_PASSWORD and GEMINI_API_KEY only in the host environment, never in the repository. GEMINI_ENABLED=true enables the approved schema-only planner. Hosted uploads are limited to 4MB (Vercel has a 4.5MB function payload limit); local servers default to 50MB.
