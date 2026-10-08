@@ -1,5 +1,18 @@
 import type { ColumnMeta, DataProfile, CleaningReport, CleaningAction, KPI, Insight, Relationship } from "@/db/schema";
 
+// A strict parser shared by profiling, cleaning, KPIs, charts and queries.
+// US-style grouping/currency supported; ambiguous locale formats are rejected.
+export function parseNumeric(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  let text = value.trim().replace(/^[$£€₹]\s*/, "");
+  if (!/^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(text) &&
+      !/^[+-]?\.\d+(?:[eE][+-]?\d+)?$/.test(text)) return null;
+  text = text.replace(/,/g, "");
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
 // ─── DATA PROFILING ───────────────────────────────────────────────
 
 export function profileData(
@@ -34,11 +47,11 @@ export function profileData(
     const uniqueCount = uniqueSet.size;
 
     const numericVals = nonNull
-      .map((v) => parseFloat(String(v)))
-      .filter((n) => !isNaN(n));
+      .map(parseNumeric)
+      .filter((n): n is number => n !== null);
 
-    const isNumeric = numericVals.length > nonNull.length * 0.7;
     const isDate = detectDateColumn(col, strValues);
+    const isNumeric = !isDate && nonNull.length > 0 && numericVals.length === nonNull.length;
 
     const meta: ColumnMeta = {
       name: col,
@@ -51,16 +64,17 @@ export function profileData(
         totalRows > 0
           ? ((nonNull.length - uniqueCount) / Math.max(nonNull.length, 1)) * 100
           : 0,
-      topValues: getTopValues(strValues, 5),
+      topValues: getTopValues(strValues, 15),
       sample: strValues.slice(0, 3),
     };
 
     if (isNumeric && numericVals.length > 0) {
-      meta.min = Math.min(...numericVals);
-      meta.max = Math.max(...numericVals);
+      meta.min = numericVals.reduce((a, b) => Math.min(a, b));
+      meta.max = numericVals.reduce((a, b) => Math.max(a, b));
       meta.mean = numericVals.reduce((a, b) => a + b, 0) / numericVals.length;
       const sorted = [...numericVals].sort((a, b) => a - b);
-      meta.median = sorted[Math.floor(sorted.length / 2)];
+      const mid = Math.floor(sorted.length / 2);
+      meta.median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
       const variance =
         numericVals.reduce((sum, v) => sum + (v - meta.mean!) ** 2, 0) /
         numericVals.length;
@@ -110,9 +124,9 @@ export function profileData(
     totalRows,
     totalColumns: columns.length,
     completeness,
-    consistency: Math.min(100, qualityScore + 5),
+    consistency: completeness,
     uniqueness:
-      columnMetas.reduce((s, c) => s + c.uniquePercent, 0) / columns.length,
+      columns.length ? columnMetas.reduce((s, c) => s + c.uniquePercent, 0) / columns.length : 0,
     qualityScore,
     dateColumns,
     numericColumns,
@@ -129,16 +143,10 @@ export function profileData(
   return { columnMetas, profile };
 }
 
-function detectDateColumn(name: string, values: string[]): boolean {
-  const datePat =
-    /date|time|created|updated|timestamp|dob|birth|start|end|expire|due/i;
-  if (datePat.test(name)) return true;
-  const sample = values.slice(0, 20);
-  const dateCount = sample.filter((v) => {
-    const d = new Date(v);
-    return !isNaN(d.getTime()) && v.length > 4;
-  }).length;
-  return dateCount > sample.length * 0.6;
+function detectDateColumn(_name: string, values: string[]): boolean {
+  if (!values.length) return false;
+  // Do not let numeric IDs, partial numbers or column-name substrings become dates.
+  return values.every((v) => /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(v.trim()) && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0,10) === v.slice(0,10));
 }
 
 function classifyColumn(
@@ -236,6 +244,7 @@ function calculateQualityScore(
   columns: ColumnMeta[],
   totalRows: number
 ): number {
+  if (!columns.length || !totalRows) return 0;
   const avgNull =
     columns.reduce((s, c) => s + c.nullPercent, 0) / columns.length;
   const avgDup =
@@ -325,6 +334,7 @@ export function cleanData(
       totalIssues += meta.nullCount;
       let fillValue: unknown = null;
 
+      if (meta.semanticType === "identifier" || meta.type === "date") continue;
       if (meta.type === "number" && meta.mean !== undefined) {
         fillValue = Math.round(meta.mean * 100) / 100;
       } else if (meta.topValues && meta.topValues.length > 0) {
@@ -386,8 +396,8 @@ export function cleanData(
       for (const row of cleaned) {
         const val = row[meta.name];
         if (typeof val === "string") {
-          const num = parseFloat(val.replace(/[,$]/g, ""));
-          if (!isNaN(num)) {
+          const num = parseNumeric(val);
+          if (num !== null) {
             row[meta.name] = num;
             formatted++;
           }
@@ -438,7 +448,7 @@ export function cleanData(
       totalIssues,
       fixedIssues,
       qualityBefore,
-      qualityAfter: Math.max(qualityAfter, qualityBefore + 5),
+      qualityAfter,
       actions,
     },
   };
@@ -448,7 +458,7 @@ function calculateRowQuality(
   rows: Record<string, unknown>[],
   metas: ColumnMeta[]
 ): number {
-  if (rows.length === 0) return 0;
+  if (rows.length === 0 || metas.length === 0) return 0;
   const total = rows.length * metas.length;
   let filled = 0;
   for (const row of rows) {
@@ -491,15 +501,15 @@ export function generateKPIs(
   });
 
   // Generate numeric KPIs
-  for (const col of profile.numericColumns.slice(0, 4)) {
+  for (const col of profile.numericColumns.filter((col) => columnMetas.find((m) => m.name === col)?.semanticType !== "identifier").slice(0, 4)) {
     const meta = columnMetas.find((c) => c.name === col);
     if (!meta || meta.mean === undefined) continue;
 
     const values = rows
-      .map((r) => parseFloat(String(r[col])))
-      .filter((n) => !isNaN(n));
+      .map((r) => parseNumeric(r[col]))
+      .filter((n): n is number => n !== null);
     const total = values.reduce((a, b) => a + b, 0);
-    const avg = total / values.length;
+    const avg = values.length ? total / values.length : 0;
 
     if (isRevenueField(col.toLowerCase())) {
       const revChange = computeChange(rows, profile.dateColumns, col, "sum");
@@ -547,7 +557,7 @@ export function generateKPIs(
       ).length;
       kpis.push({
         name: "Completion Rate",
-        value: `${((completed / rows.length) * 100).toFixed(1)}%`,
+        value: `${((rows.length ? completed / rows.length : 0) * 100).toFixed(1)}%`,
         icon: "check",
         color: "green",
       });
@@ -571,8 +581,8 @@ function computeChange(
   dateColumns: string[],
   column: string,
   aggFn: "sum" | "avg"
-): { change: number; trend: "up" | "down" } {
-  if (rows.length < 4) return { change: 0, trend: "up" };
+): { change?: number; trend?: "up" | "down" } {
+  if (rows.length < 4 || !dateColumns.length) return {};
 
   let sorted = rows;
   if (dateColumns.length > 0) {
@@ -590,8 +600,8 @@ function computeChange(
 
   const calcVal = (data: Record<string, unknown>[]) => {
     const vals = data
-      .map((r) => parseFloat(String(r[column])))
-      .filter((n) => !isNaN(n));
+      .map((r) => parseNumeric(r[column]))
+      .filter((n): n is number => n !== null);
     if (vals.length === 0) return 0;
     if (aggFn === "sum") return vals.reduce((a, b) => a + b, 0);
     return vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -600,7 +610,7 @@ function computeChange(
   const firstVal = calcVal(firstHalf);
   const secondVal = calcVal(secondHalf);
 
-  if (firstVal === 0) return { change: 0, trend: "up" };
+  if (firstVal === 0) return {};
 
   const change = Math.round(((secondVal - firstVal) / firstVal) * 1000) / 10;
   return { change, trend: change >= 0 ? "up" : "down" };
@@ -609,116 +619,23 @@ function computeChange(
 // ─── INSIGHT GENERATION ───────────────────────────────────────────
 
 export function generateInsights(
-  rows: Record<string, unknown>[],
-  profile: DataProfile,
-  columnMetas: ColumnMeta[],
-  domain: string
+  rows: Record<string, unknown>[], profile: DataProfile,
+  columnMetas: ColumnMeta[], _domain: string
 ): Insight[] {
+  // Confidence percentages are deliberately not displayed as measured accuracy.
   const insights: Insight[] = [];
-
-  // Completeness insight
-  if (profile.completeness < 90) {
-    insights.push({
-      title: "Data Completeness Alert",
-      description: `Dataset completeness is ${profile.completeness.toFixed(1)}%. Consider filling missing values for better analysis accuracy.`,
-      confidence: 0.95,
-      impact: "high",
-      type: "anomaly",
-      action: "Run auto-cleaning to fill missing values using statistical imputation.",
+  if (profile.completeness < 100) insights.push({
+    title: "Missing cells", description: `${profile.completeness.toFixed(1)}% of cells are filled. Imputation can change results; compare raw and cleaned data.`,
+    confidence: 0, impact: "high", type: "anomaly"
+  });
+  for (const meta of columnMetas.filter((m) => m.type === "number" && m.semanticType !== "identifier").slice(0, 4)) {
+    const vals = rows.map((r) => parseNumeric(r[meta.name])).filter((v): v is number => v !== null);
+    if (vals.length) insights.push({
+      title: `${formatColName(meta.name)} summary`,
+      description: `${vals.length} numeric values; total ${vals.reduce((a,b) => a+b,0).toLocaleString()}; mean ${(vals.reduce((a,b) => a+b,0)/vals.length).toFixed(2)}. Descriptive statistics, not a forecast.`,
+      confidence: 0, impact: "low", type: "recommendation"
     });
   }
-
-  // Find top contributor
-  if (profile.categoricalColumns.length > 0 && profile.numericColumns.length > 0) {
-    const catCol = profile.categoricalColumns[0];
-    const numCol = profile.numericColumns[0];
-    const groups = new Map<string, number>();
-    for (const row of rows) {
-      const key = String(row[catCol] ?? "Unknown");
-      const val = parseFloat(String(row[numCol])) || 0;
-      groups.set(key, (groups.get(key) || 0) + val);
-    }
-    const sorted = Array.from(groups.entries()).sort((a, b) => b[1] - a[1]);
-    if (sorted.length > 0) {
-      const total = sorted.reduce((s, [, v]) => s + v, 0);
-      const topPct = ((sorted[0][1] / total) * 100).toFixed(1);
-      insights.push({
-        title: `Top ${formatColName(catCol)} Contributor`,
-        description: `"${sorted[0][0]}" contributes ${topPct}% of total ${formatColName(numCol)}.`,
-        confidence: 0.88,
-        impact: "high",
-        type: "trend",
-        action: `Focus on "${sorted[0][0]}" for maximum impact on ${formatColName(numCol)}.`,
-      });
-    }
-  }
-
-  // Trend detection for date-based data
-  if (profile.dateColumns.length > 0 && profile.numericColumns.length > 0) {
-    insights.push({
-      title: "Time-Series Pattern Detected",
-      description: `Temporal data found in "${profile.dateColumns[0]}". Monthly trends show ${Math.random() > 0.5 ? "upward" : "variable"} patterns in ${formatColName(profile.numericColumns[0])}.`,
-      confidence: 0.82,
-      impact: "medium",
-      type: "trend",
-      action: "Use forecasting to predict future values based on historical patterns.",
-    });
-  }
-
-  // Outlier detection
-  for (const col of profile.numericColumns.slice(0, 2)) {
-    const meta = columnMetas.find((c) => c.name === col);
-    if (!meta || meta.stdDev === undefined || meta.mean === undefined) continue;
-    if (meta.stdDev > meta.mean * 0.8) {
-      insights.push({
-        title: `High Variance in ${formatColName(col)}`,
-        description: `${formatColName(col)} shows high variability (CV: ${((meta.stdDev / meta.mean) * 100).toFixed(0)}%). This may indicate outliers or diverse data segments.`,
-        confidence: 0.78,
-        impact: "medium",
-        type: "anomaly",
-        action: "Investigate outliers and consider segmentation analysis.",
-      });
-    }
-  }
-
-  // Domain-specific insights
-  if (domain !== "General Analytics") {
-    insights.push({
-      title: `${domain} Domain Detected`,
-      description: `This dataset appears to be ${domain}-related data. Domain-specific KPIs and metrics have been automatically configured.`,
-      confidence: 0.85,
-      impact: "low",
-      type: "recommendation",
-      action: `Review ${domain}-specific dashboards for industry-standard analytics.`,
-    });
-  }
-
-  // Quality recommendation
-  if (profile.qualityScore >= 80) {
-    insights.push({
-      title: "High Data Quality",
-      description: `Data quality score is ${profile.qualityScore.toFixed(0)}% — suitable for advanced analytics, predictions, and automated reporting.`,
-      confidence: 0.92,
-      impact: "low",
-      type: "recommendation",
-    });
-  }
-
-  // Cardinality insight
-  const highCardCols = columnMetas.filter(
-    (c) => c.uniquePercent > 90 && c.type === "string"
-  );
-  if (highCardCols.length > 0) {
-    insights.push({
-      title: "High Cardinality Columns Detected",
-      description: `Columns ${highCardCols.map((c) => `"${c.name}"`).join(", ")} have >90% unique values. These may be identifiers or free-text fields.`,
-      confidence: 0.85,
-      impact: "low",
-      type: "recommendation",
-      action: "Consider grouping or excluding these columns from aggregation analyses.",
-    });
-  }
-
   return insights;
 }
 
@@ -743,11 +660,12 @@ export function generateChartRecommendations(
   // Bar chart: top categorical by numeric
   if (profile.categoricalColumns.length > 0 && profile.numericColumns.length > 0) {
     const catCol = profile.categoricalColumns[0];
-    const numCol = profile.numericColumns[0];
+    const numCol = profile.revenueColumns.find((c) => profile.numericColumns.includes(c)) || profile.numericColumns.find((c) => columnMetas.find((m) => m.name === c)?.semanticType !== "identifier");
+    if (!numCol) return charts;
     const groups = new Map<string, number>();
     for (const row of rows) {
       const key = String(row[catCol] ?? "Unknown");
-      const val = parseFloat(String(row[numCol])) || 0;
+      const val = parseNumeric(row[numCol]) ?? 0;
       groups.set(key, (groups.get(key) || 0) + val);
     }
     const sorted = Array.from(groups.entries())
@@ -784,7 +702,8 @@ export function generateChartRecommendations(
   // Line chart for time series
   if (profile.dateColumns.length > 0 && profile.numericColumns.length > 0) {
     const dateCol = profile.dateColumns[0];
-    const numCol = profile.numericColumns[0];
+    const numCol = profile.revenueColumns.find((c) => profile.numericColumns.includes(c)) || profile.numericColumns.find((c) => columnMetas.find((m) => m.name === c)?.semanticType !== "identifier");
+    if (!numCol) return charts;
 
     const byMonth = new Map<string, number[]>();
     for (const row of rows) {
@@ -792,7 +711,7 @@ export function generateChartRecommendations(
       if (isNaN(d.getTime())) continue;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       if (!byMonth.has(key)) byMonth.set(key, []);
-      byMonth.get(key)!.push(parseFloat(String(row[numCol])) || 0);
+      byMonth.get(key)!.push(parseNumeric(row[numCol]) ?? 0);
     }
 
     const sorted = Array.from(byMonth.entries())
@@ -802,13 +721,13 @@ export function generateChartRecommendations(
     if (sorted.length > 2) {
       charts.push({
         type: "line",
-        title: `${formatColName(numCol)} Over Time`,
+        title: `${formatColName(numCol)} Monthly Total`,
         xKey: "month",
         yKey: numCol,
         data: sorted.map(([month, vals]) => ({
           month,
           [numCol]: Math.round(
-            (vals.reduce((a, b) => a + b, 0) / vals.length) * 100
+            vals.reduce((a, b) => a + b, 0) * 100
           ) / 100,
         })),
       });
@@ -817,8 +736,10 @@ export function generateChartRecommendations(
 
   // Area chart: cumulative numeric
   if (profile.numericColumns.length >= 2) {
-    const col1 = profile.numericColumns[0];
-    const col2 = profile.numericColumns[1];
+    const measures = profile.numericColumns.filter((c) => columnMetas.find((m) => m.name === c)?.semanticType !== "identifier");
+    if (measures.length < 2) return charts;
+    const col1 = measures[0];
+    const col2 = measures[1];
     const sampleRows = rows.slice(0, 20);
     charts.push({
       type: "area",
@@ -827,24 +748,26 @@ export function generateChartRecommendations(
       yKey: col1,
       data: sampleRows.map((r, i) => ({
         index: i + 1,
-        [col1]: parseFloat(String(r[col1])) || 0,
-        [col2]: parseFloat(String(r[col2])) || 0,
+        [col1]: parseNumeric(r[col1]) ?? 0,
+        [col2]: parseNumeric(r[col2]) ?? 0,
       })),
     });
   }
 
   // Scatter plot
   if (profile.numericColumns.length >= 2) {
-    const xCol = profile.numericColumns[0];
-    const yCol = profile.numericColumns[1];
+    const measures = profile.numericColumns.filter((c) => columnMetas.find((m) => m.name === c)?.semanticType !== "identifier");
+    if (measures.length < 2) return charts;
+    const xCol = measures[0];
+    const yCol = measures[1];
     charts.push({
       type: "scatter",
       title: `${formatColName(xCol)} vs ${formatColName(yCol)} Correlation`,
       xKey: xCol,
       yKey: yCol,
       data: rows.slice(0, 100).map((r) => ({
-        [xCol]: parseFloat(String(r[xCol])) || 0,
-        [yCol]: parseFloat(String(r[yCol])) || 0,
+        [xCol]: parseNumeric(r[xCol]) ?? 0,
+        [yCol]: parseNumeric(r[yCol]) ?? 0,
       })),
     });
   }
@@ -854,150 +777,77 @@ export function generateChartRecommendations(
 
 // ─── NATURAL LANGUAGE QUERY ───────────────────────────────────────
 
-export function processNLQuery(
-  question: string,
-  rows: Record<string, unknown>[],
-  profile: DataProfile,
-  columnMetas: ColumnMeta[]
-): { answer: string; chart?: ChartRecommendation } {
-  const q = question.toLowerCase();
+export type QueryPlan = {
+  operation: "sum" | "average" | "median" | "min" | "max" | "count" | "top" | "distribution" | "trend";
+  column?: string; groupBy?: string;
+  filters?: { column: string; value: string }[];
+};
 
-  // Total / sum queries
-  const sumMatch = q.match(/total\s+(\w+)/);
-  if (sumMatch) {
-    const target = sumMatch[1];
-    const col = findMatchingColumn(target, columnMetas);
-    if (col && col.type === "number") {
-      const total = rows.reduce(
-        (s, r) => s + (parseFloat(String(r[col.name])) || 0),
-        0
-      );
-      return {
-        answer: `The total ${formatColName(col.name)} is ${total.toLocaleString()}.`,
-      };
+export function executeQueryPlan(plan: QueryPlan, rows: Record<string, unknown>[], metas: ColumnMeta[]): { answer: string; chart?: ChartRecommendation } {
+  const names = new Set(metas.map((m) => m.name));
+  if ((plan.filters || []).some((f) => !names.has(f.column)) || (plan.groupBy && !names.has(plan.groupBy)))
+    return { answer: "Unsupported column or filter. No calculation was run." };
+  const selected = rows.filter((r) => (plan.filters || []).every((f) => String(r[f.column] ?? "").trim().toLowerCase() === f.value.trim().toLowerCase()));
+  const scope = plan.filters?.length ? ` (${plan.filters.map((f) => `${f.column} = ${f.value}`).join(", ")})` : "";
+  if (plan.operation === "count") return { answer: `${selected.length} records${scope}.` };
+  if (!selected.length) return { answer: `No matching records${scope}.` };
+  if (plan.operation === "distribution" && plan.groupBy) {
+    const counts = new Map<string, number>();
+    for (const row of selected) { const key = String(row[plan.groupBy] ?? "Missing"); counts.set(key, (counts.get(key) || 0) + 1); }
+    return { answer: `${plan.groupBy} distribution${scope}:\n${[...counts].map(([k,v]) => `${k}: ${v}`).join("\n")}` };
+  }
+  const meta = metas.find((m) => m.name === plan.column && m.type === "number");
+  if (!meta) return { answer: "Please name a numeric measure column. No calculation was run." };
+  const vals = selected.map((r) => parseNumeric(r[meta.name])).filter((n): n is number => n !== null);
+  if (!vals.length) return { answer: "No valid numeric values in the selected records." };
+  if ((plan.operation === "top" || plan.operation === "trend") && plan.groupBy) {
+    const groups = new Map<string, number>();
+    for (const row of selected) {
+      const number = parseNumeric(row[meta.name]); if (number === null) continue;
+      let key = String(row[plan.groupBy] ?? "Missing");
+      if (plan.operation === "trend") { if (!/^\d{4}-\d{2}-\d{2}/.test(key) || Number.isNaN(Date.parse(key))) continue; key = key.slice(0,7); }
+      groups.set(key, (groups.get(key) || 0) + number);
     }
+    const sorted = [...groups].sort(plan.operation === "top" ? (a,b) => b[1]-a[1] : (a,b) => a[0].localeCompare(b[0]));
+    const data = (plan.operation === "top" ? sorted.slice(0,5) : sorted).map(([k,v]) => ({ [plan.groupBy!]: k, [meta.name]: v }));
+    return { answer: `${plan.operation} ${meta.name} by ${plan.groupBy}${scope}:\n${data.map((r) => `${r[plan.groupBy!]}: ${Number(r[meta.name]).toLocaleString()}`).join("\n")}`,
+      chart: { type: plan.operation === "top" ? "bar" : "line", title: `${meta.name} by ${plan.groupBy}`, xKey: plan.groupBy, yKey: meta.name, data } };
   }
-
-  // Average queries
-  const avgMatch = q.match(/average|avg|mean/);
-  if (avgMatch) {
-    const numCols = columnMetas.filter((c) => c.type === "number");
-    const targetCol = numCols.find((c) =>
-      q.includes(c.name.toLowerCase())
-    ) || numCols[0];
-    if (targetCol && targetCol.mean !== undefined) {
-      return {
-        answer: `The average ${formatColName(targetCol.name)} is ${targetCol.mean.toFixed(2)}.`,
-      };
-    }
-  }
-
-  // Top / best queries
-  if (q.includes("top") || q.includes("best") || q.includes("highest")) {
-    if (profile.categoricalColumns.length > 0 && profile.numericColumns.length > 0) {
-      const catCol = profile.categoricalColumns[0];
-      const numCol = profile.numericColumns[0];
-      const groups = new Map<string, number>();
-      for (const row of rows) {
-        const key = String(row[catCol] ?? "Unknown");
-        const val = parseFloat(String(row[numCol])) || 0;
-        groups.set(key, (groups.get(key) || 0) + val);
-      }
-      const sorted = Array.from(groups.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5);
-
-      return {
-        answer: `Top 5 ${formatColName(catCol)} by ${formatColName(numCol)}:\n${sorted
-          .map(
-            ([k, v], i) => `${i + 1}. ${k}: ${v.toLocaleString()}`
-          )
-          .join("\n")}`,
-        chart: {
-          type: "bar",
-          title: `Top ${formatColName(catCol)}`,
-          xKey: catCol,
-          yKey: numCol,
-          data: sorted.map(([k, v]) => ({ [catCol]: k, [numCol]: v })),
-        },
-      };
-    }
-  }
-
-  // Trend queries
-  if (q.includes("trend") || q.includes("over time") || q.includes("monthly")) {
-    if (profile.dateColumns.length > 0 && profile.numericColumns.length > 0) {
-      const dateCol = profile.dateColumns[0];
-      const numCol = profile.numericColumns[0];
-      const byMonth = new Map<string, number>();
-      for (const row of rows) {
-        const d = new Date(String(row[dateCol]));
-        if (isNaN(d.getTime())) continue;
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-        byMonth.set(key, (byMonth.get(key) || 0) + (parseFloat(String(row[numCol])) || 0));
-      }
-      const sorted = Array.from(byMonth.entries()).sort(([a], [b]) =>
-        a.localeCompare(b)
-      );
-      return {
-        answer: `Monthly trend for ${formatColName(numCol)}:\n${sorted
-          .slice(-6)
-          .map(([m, v]) => `${m}: ${v.toLocaleString()}`)
-          .join("\n")}`,
-        chart: {
-          type: "line",
-          title: `${formatColName(numCol)} Trend`,
-          xKey: "month",
-          yKey: numCol,
-          data: sorted.map(([m, v]) => ({ month: m, [numCol]: v })),
-        },
-      };
-    }
-  }
-
-  // Count queries
-  if (q.includes("how many") || q.includes("count")) {
-    return {
-      answer: `The dataset contains ${rows.length} records across ${profile.totalColumns} columns.`,
-    };
-  }
-
-  // Distribution queries
-  if (q.includes("distribution") || q.includes("breakdown")) {
-    if (profile.categoricalColumns.length > 0) {
-      const catCol = profile.categoricalColumns[0];
-      const meta = columnMetas.find((c) => c.name === catCol);
-      if (meta?.topValues) {
-        return {
-          answer: `${formatColName(catCol)} distribution:\n${meta.topValues
-            .map((tv) => `• ${tv.value}: ${tv.count} records`)
-            .join("\n")}`,
-          chart: {
-            type: "pie",
-            title: `${formatColName(catCol)} Distribution`,
-            dataKey: "count",
-            data: meta.topValues.map((tv) => ({
-              name: tv.value,
-              count: tv.count,
-            })),
-          },
-        };
-      }
-    }
-  }
-
-  // Fallback
-  return {
-    answer: `Based on your query about "${question}", here's a summary:\n\n• Dataset: ${rows.length} rows, ${profile.totalColumns} columns\n• Quality Score: ${profile.qualityScore.toFixed(0)}%\n• Numeric Columns: ${profile.numericColumns.join(", ") || "None"}\n• Categories: ${profile.categoricalColumns.join(", ") || "None"}\n\nTry asking about totals, averages, trends, distributions, or top performers.`,
-  };
+  const sorted = [...vals].sort((a,b) => a-b), mid = Math.floor(vals.length/2);
+  const result = plan.operation === "sum" ? vals.reduce((a,b)=>a+b,0) : plan.operation === "average" ? vals.reduce((a,b)=>a+b,0)/vals.length : plan.operation === "median" ? (vals.length%2 ? sorted[mid] : (sorted[mid-1]+sorted[mid])/2) : plan.operation === "min" ? sorted[0] : plan.operation === "max" ? sorted.at(-1)! : null;
+  if (result === null) return { answer: "This query needs a grouping column. No calculation was run." };
+  return { answer: `The ${plan.operation} ${meta.name}${scope} is ${result.toLocaleString("en-US", { maximumFractionDigits: 6 })}.` };
 }
 
-function findMatchingColumn(
-  target: string,
-  metas: ColumnMeta[]
-): ColumnMeta | undefined {
-  return (
-    metas.find((c) => c.name.toLowerCase() === target) ||
-    metas.find((c) => c.name.toLowerCase().includes(target))
-  );
-}
+export function processNLQuery(question: string, rows: Record<string, unknown>[], profile: DataProfile, metas: ColumnMeta[]): { answer: string; chart?: ChartRecommendation } {
+  let q = question.toLowerCase().trim().replace(/[?!.]+$/, "");
+  const filters: NonNullable<QueryPlan["filters"]> = [];
+  // Exact equality clauses only. Never silently discard an unknown filter.
+  const filter = q.match(/\s+(?:in|where|for)\s+(.+)$/);
+  if (filter) {
+    const text = filter[1].trim().replace(/^['"]|['"]$/g, "");
+    const explicit = text.match(/^(.+?)\s*(?:=|is)\s*['"]?(.+?)['"]?$/);
+    const candidates = explicit ? metas.filter((m) => m.name.toLowerCase() === explicit[1].trim()) : metas.filter((m) => rows.some((r) => String(r[m.name] ?? "").trim().toLowerCase() === text));
+    if (candidates.length !== 1) return { answer: "I could not resolve that filter uniquely. Use where column = value. No calculation was run." };
+    filters.push({ column: candidates[0].name, value: explicit ? explicit[2] : text }); q = q.slice(0, filter.index).trim();
+  }
+  if (/\b(and|or|excluding|between|greater|less|above|below|last|before|after)\b/.test(q)) return { answer: "That condition is not supported by the local parser. No calculation was run." };
+  const mentions = metas.filter((m) => q.includes(m.name.toLowerCase()) || q.includes(m.name.toLowerCase().replace(/[_-]/g," ")));
+  const numeric = mentions.filter((m) => m.type === "number");
+  const candidates = metas.filter((m) => m.type === "number" && m.semanticType !== "identifier");
+  const column = numeric.length === 1 ? numeric[0].name : numeric.length === 0 && candidates.length === 1 ? candidates[0].name : undefined;
+  const groups = mentions.filter((m) => m.type !== "number");
+  let operation: QueryPlan["operation"] | undefined;
+  if (/\b(how many|count|number of records|total records)\b/.test(q)) operation = "count";
+  else if (/\b(top|best|highest)\b/.test(q)) operation = "top";
+  else if (/\b(trend|monthly|over time)\b/.test(q)) operation = "trend";
+  else if (/\b(distribution|breakdown)\b/.test(q)) operation = "distribution";
+  else if (/\b(median)\b/.test(q)) operation = "median";
+  else if (/\b(average|avg|mean)\b/.test(q)) operation = "average";
+  else if (/\b(total|sum)\b/.test(q)) operation = "sum";
+  else if (/\b(minimum|min)\b/.test(q)) operation = "min";
+  else if (/\b(maximum|max)\b/.test(q)) operation = "max";
+  if (!operation) return { answer: "Local queries support count, sum, average, median, min/max, top, distribution and monthly totals with one exact-equality filter. Name the measure and group columns. No calculation was run." };
+  const groupBy = operation === "trend" ? (groups.find((m) => m.type === "date")?.name || (profile.dateColumns.length === 1 ? profile.dateColumns[0] : undefined)) : groups.length === 1 ? groups[0].name : undefined;
+  return executeQueryPlan({ operation, column, groupBy, filters }, rows, metas);
+                                                                 }
