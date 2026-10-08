@@ -400,50 +400,6 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
           </div>
         )}
 
-        {/* ── HERO METRIC ── */}
-        {false && heroKpi && (
-          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600/20 via-indigo-600/10 to-purple-600/20 border border-blue-500/20 p-6">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-            <div className="relative flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <p className="text-[10px] uppercase tracking-widest text-blue-400/70 font-medium mb-1">KEY METRIC</p>
-                <p className="text-sm text-slate-400 mb-1">{heroKpi.name}</p>
-                <p className="text-4xl font-bold text-white tabular-nums">
-                  {typeof heroKpi.value === "number" ? <AnimatedCounter value={heroKpi.value} /> : heroKpi.value}
-                </p>
-                {heroKpi.change !== undefined && (
-                  <div className={cn("flex items-center gap-1.5 mt-2 text-sm font-medium", heroKpi.change > 0 ? "text-emerald-400" : "text-red-400")}>
-                    {heroKpi.change > 0 ? <ArrowUpRight className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                    {Math.abs(heroKpi.change)}% between dated row halves
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-4">
-                {sparkData.length > 0 && (
-                  <div className="text-right">
-                    <p className="text-[10px] text-slate-500 mb-1">Monthly values (up to 12 months)</p>
-                    <Sparkline data={sparkData} color="#4472C4" height={32} />
-                  </div>
-                )}
-                <div className="text-right">
-                  <div className="relative w-20 h-20">
-                    <svg className="w-20 h-20 -rotate-90" viewBox="0 0 100 100">
-                      <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="6" />
-                      <circle cx="50" cy="50" r="42" fill="none" stroke={qColor} strokeWidth="6" strokeLinecap="round" strokeDasharray={`${(profile.qualityScore / 100) * 263.9} 263.9`} />
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="text-center">
-                        <span className="text-lg font-bold text-white">{profile.qualityScore.toFixed(0)}</span>
-                        <p className="text-[7px] text-slate-500 -mt-0.5">quality</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* ── VIEW TABS ── */}
         <div className="flex items-center gap-1">
           {viewTabs.map((vt) => {
@@ -814,4 +770,4 @@ function DistBar({ label, count, total, color }: { label: string; count: number;
       <span className="text-[10px] text-slate-500 font-mono w-8 text-right">{count}</span>
     </div>
   );
-                            }
+            }
