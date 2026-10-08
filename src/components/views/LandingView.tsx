@@ -112,7 +112,7 @@ export function LandingView({ onNavigate }: LandingViewProps) {
   const features = [
     {
       icon: Brain,
-      title: "AI Data Profiling",
+      title: "Data Profiling",
       desc: "Auto-detect keys, types, relationships & data quality",
       color: "from-blue-500 to-blue-600",
     },
@@ -164,7 +164,7 @@ export function LandingView({ onNavigate }: LandingViewProps) {
           <div className="flex justify-center mb-8">
             <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-medium">
               <Sparkles className="w-3.5 h-3.5" />
-              AI-Powered Enterprise Analytics
+              Data Exploration & Analytics
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot" />
             </div>
           </div>
@@ -177,7 +177,7 @@ export function LandingView({ onNavigate }: LandingViewProps) {
           </h1>
 
           <p className="text-lg text-slate-400 text-center max-w-2xl mx-auto mb-12 leading-relaxed">
-            Upload any data file and get instant AI-powered profiling, domain
+            Upload any data file and get instant computed profiling, domain
             detection, automated KPIs, smart insights, and interactive
             dashboards — all in seconds.
           </p>
@@ -219,7 +219,7 @@ export function LandingView({ onNavigate }: LandingViewProps) {
                   id="file-upload"
                   type="file"
                   className="hidden"
-                  accept=".csv,.xlsx,.xls,.json,.tsv,.txt"
+                  accept=".csv,.xlsx,.json,.tsv,.txt"
                   onChange={onFileSelect}
                 />
                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/20 flex items-center justify-center mx-auto mb-4">
@@ -232,7 +232,7 @@ export function LandingView({ onNavigate }: LandingViewProps) {
                   or click to browse
                 </p>
                 <div className="flex items-center justify-center gap-3 flex-wrap">
-                  {["CSV", "XLSX", "XLS", "JSON", "TSV", "TXT"].map((fmt) => (
+                  {["CSV", "XLSX", "JSON", "TSV", "TXT"].map((fmt) => (
                     <span
                       key={fmt}
                       className="px-2.5 py-1 rounded-md bg-white/5 text-xs text-slate-400 font-mono"
