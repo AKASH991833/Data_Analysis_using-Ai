@@ -401,7 +401,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
         )}
 
         {/* ── HERO METRIC ── */}
-        {heroKpi && (
+        {false && heroKpi && (
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600/20 via-indigo-600/10 to-purple-600/20 border border-blue-500/20 p-6">
             <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
             <div className="relative flex flex-wrap items-end justify-between gap-4">
@@ -462,7 +462,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
 
         {/* ── OVERVIEW VIEW ── */}
         {activeView === "overview" && (
-          <ExecutiveBoard kpis={kpiData} charts={orderedCharts} profile={profile} insights={insights}
+          <ExecutiveBoard kpis={kpis.slice(0, 6)} charts={orderedCharts} profile={profile} insights={insights}
             cleaning={cleaningReport} filters={filters} onPoint={onPoint} />
         )}
 
@@ -814,4 +814,4 @@ function DistBar({ label, count, total, color }: { label: string; count: number;
       <span className="text-[10px] text-slate-500 font-mono w-8 text-right">{count}</span>
     </div>
   );
-      }
+                            }
