@@ -37,3 +37,7 @@ test("Gemini payload has schema and question, no rows",async()=>{
   globalThis.fetch=async (_url,options)=>{sent=String(options?.body);return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({operation:"sum",column:"revenue",filters:[{column:"region",value:"North"}]})}]}}]});};
   try{assert.match((await queryWithGemini("total revenue in North",rows,columnMetas))!.answer,/is 100/);assert.ok(!sent.includes('"revenue":100'));assert.ok(!sent.includes('"product":"A"'));}finally{globalThis.fetch=original;delete process.env.GEMINI_API_KEY;process.env.GEMINI_ENABLED="false";}
 });
+test("grouped sum and comparison do not silently run global total",()=>{for(const q of ["total revenue by region","total revenue > 100"])assert.match(ask(q).answer,/No calculation/);});
+test("column paid is not an identifier",()=>assert.notEqual(profileData([{paid:100},{paid:200}],["paid"]).columnMetas[0].semanticType,"identifier"));
+test("negative status is not a completed record",()=>{const r=[{status:"not completed"},{status:"Completed"}];const p=profileData(r,["status"]);assert.equal(generateKPIs(r,p.profile,p.columnMetas,"Sales").find(k=>k.name==="Completion Rate")?.value,"50.0%");});
+test("monthly chart aggregates totals not averages",()=>{const r=[{date:"2026-01-01",revenue:100},{date:"2026-01-02",revenue:200},{date:"2026-02-01",revenue:50},{date:"2026-03-01",revenue:60}];const p=profileData(r,["date","revenue"]);assert.equal(generateChartRecommendations(r,p.profile,p.columnMetas).find(c=>c.type==="line")?.data[0].revenue,300);});
