@@ -240,7 +240,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
   }, [charts]);
 
   const forecast = useMemo(() => {
-    if (!sparkData.length) return null;
+    if (sparkData.length < 3) return null;
     return forecastLinear(sparkData, 1);
   }, [sparkData]);
 
@@ -362,8 +362,8 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
           <option value="All">All Regions</option>
           {(columnValues?.[profile.locationColumns[0]] || []).slice(0, 50).map((v: string) => <option key={v}>{v}</option>)}
         </select>
-        <select className="px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-slate-300 outline-none focus:border-blue-500/30">
-          <option>All Time</option>
+        <select value={datePeriod} onChange={(e) => setDatePeriod(e.target.value)} className="px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-slate-300 outline-none focus:border-blue-500/30">
+          <option value="all">All Time</option><option value="7d">Last 7 Days</option><option value="30d">Last 30 Days</option><option value="quarter">This Quarter</option><option value="year">This Year</option>
         </select>
         <div className="ml-auto flex items-center gap-2 text-[10px] text-slate-600">
           <Clock className="w-3 h-3" />
@@ -1053,4 +1053,4 @@ function DistBar({ label, count, total, color }: { label: string; count: number;
       <span className="text-[10px] text-slate-500 font-mono w-8 text-right">{count}</span>
     </div>
   );
-                    }
+        }
