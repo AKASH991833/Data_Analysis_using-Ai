@@ -1,5 +1,10 @@
 # NexusAI Analytics
 
+**Live app:** https://nexusai-kappa-nine.vercel.app/ (private single-user login)
+
+![NexusAI Analytics sign-in](screenshots/home-desktop.png)
+
+
 Single-user dataset exploration with the existing Next.js/TypeScript dashboard UI, MySQL/Drizzle storage, charts, pivots and optional Gemini query planning. Calculations run locally on the server, not in the language model.
 
 ## Run locally
