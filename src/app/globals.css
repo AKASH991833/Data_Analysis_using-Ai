@@ -133,3 +133,25 @@ body {
 @keyframes rotate-border {
   to { --angle: 360deg; }
 }
+
+/* Print-to-PDF: only the dashboard board prints, with colors preserved. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #dashboard-print-root,
+  #dashboard-print-root * {
+    visibility: visible;
+  }
+  #dashboard-print-root {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    background: #0a0a1a;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  #dashboard-print-root .no-print {
+    display: none !important;
+  }
+}
