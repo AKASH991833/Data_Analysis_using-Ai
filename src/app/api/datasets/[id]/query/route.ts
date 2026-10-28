@@ -57,8 +57,9 @@ export async function POST(
         result = { ...executeQueryPlan(followUp, rows, columnMetas), engine: "local", interpretedPlan: followUp };
       }
     }
+    let geminiUnavailable = false;
     if (!result) {
-      try { result = await queryWithGemini(question, rows, columnMetas, history); } catch (error) { console.warn("Gemini fallback", error instanceof Error ? error.name : "unknown"); /* No provider body or secrets logged. */ }
+      try { result = await queryWithGemini(question, rows, columnMetas, history); if (!result) geminiUnavailable = true; } catch (error) { geminiUnavailable = true; console.warn("Gemini fallback", error instanceof Error ? error.name : "unknown"); /* No provider body or secrets logged. */ }
     }
     result ??= { ...processNLQuery(question, rows, profile, columnMetas), engine: "local" };
 
@@ -71,7 +72,7 @@ export async function POST(
       chartConfig: result.chart ? (result.chart as unknown as Record<string, unknown>) : null,
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, geminiUnavailable });
   } catch {
     return NextResponse.json(
       { error: "Failed to process query" },
