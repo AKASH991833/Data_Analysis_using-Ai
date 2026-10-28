@@ -57,6 +57,7 @@ export function NLQueryTab({ datasetId }: NLQueryTabProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [lastPlan, setLastPlan] = useState<Record<string, unknown> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -108,14 +109,23 @@ export function NLQueryTab({ datasetId }: NLQueryTabProps) {
     setLoading(true);
 
     try {
+      // Send recent conversation so follow-ups ("aur North ka?") resolve against it.
+      const recent = messages.slice(-6);
+      const history: { question: string; answer: string }[] = [];
+      for (let i = 0; i + 1 < recent.length; i++) {
+        if (recent[i].role === "user" && recent[i + 1].role === "assistant") {
+          history.push({ question: recent[i].content, answer: recent[i + 1].content });
+        }
+      }
       const res = await fetch(`/api/datasets/${datasetId}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, history, previousPlan: lastPlan }),
       });
 
       const data = await res.json();
 
+      if (data.interpretedPlan) setLastPlan(data.interpretedPlan);
       const assistantMsg: Message = {
         role: "assistant",
         content: data.answer || "I couldn't process that query.",
@@ -146,7 +156,7 @@ export function NLQueryTab({ datasetId }: NLQueryTabProps) {
               Ask About Your Data
             </h3>
             <p className="text-[10px] text-slate-500">
-              Local queries; optional Gemini query planning when enabled
+              Remembers this conversation - ask follow-ups like &quot;aur North ka?&quot;
             </p>
           </div>
         </div>
@@ -241,7 +251,7 @@ export function NLQueryTab({ datasetId }: NLQueryTabProps) {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !loading) sendQuery(input);
               }}
-              placeholder="Ask about your data..."
+              placeholder="Ask about your data... follow-ups like 'aur North ka?' work too"
               className="min-w-0 flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/30"
             />
             <button
