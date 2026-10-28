@@ -63,7 +63,11 @@ export function DataTableTab({ datasetId, columns, totalRows }: DataTableTabProp
   const saveEdit = async () => {
     if (!editing) return;
     const idx = rowIndex.get(editing.row);
-    if (idx === undefined) { setEditing(null); return; }
+    if (idx === undefined) {
+      setEditNote("This row was just saved; reload the Data tab to edit it again.");
+      setEditing(null);
+      return;
+    }
     setSaving(true);
     setEditNote(null);
     try {
@@ -77,6 +81,7 @@ export function DataTableTab({ datasetId, columns, totalRows }: DataTableTabProp
         setEditNote(json.error || "Could not save the edit.");
         return;
       }
+      rowIndex.set(json.row, idx);
       setData((prev) => { const next = [...prev]; next[idx] = json.row; return next; });
       setEditNote("Saved. Charts recompute from this data on their next load; stored KPI summaries update on re-upload.");
       setEditing(null);
