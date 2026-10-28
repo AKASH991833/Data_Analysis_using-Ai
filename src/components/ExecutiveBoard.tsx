@@ -88,7 +88,7 @@ export function ExecutiveBoard({ kpis, charts, profile, insights, cleaning, filt
   );
 
   return (
-    <div className="space-y-3 sm:space-y-4" data-testid="executive-board">
+    <div className="space-y-3 sm:space-y-4 min-w-0 max-w-full overflow-x-clip" data-testid="executive-board">
       {plan?.engine === "gemini" && (
         <div className="flex items-center gap-2 text-[10px] text-slate-400">
           <Brain className="w-3 h-3 text-purple-400" />
@@ -122,7 +122,7 @@ export function ExecutiveBoard({ kpis, charts, profile, insights, cleaning, filt
       {/* Gauges + donut + main bar */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4">
         <Card title="Data health" sub={`score ${profile.qualityScore.toFixed(0)}/100`} className="lg:col-span-3">
-          <div className="grid grid-cols-3 lg:grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-2">
             <Gauge label="Quality" value={profile.qualityScore} color={qColor} />
             <Gauge label="Complete" value={profile.completeness} color="#5B9BD5" />
             <Gauge label="Consistent" value={profile.consistency} color="#70AD47" />
