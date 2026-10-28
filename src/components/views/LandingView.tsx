@@ -17,16 +17,111 @@ import {
   Loader2,
 } from "lucide-react";
 
-const MAX_ROWS = 100000;
+const DEFAULT_MAX_ROWS = 100000;
+const FULL_MAX_ROWS = 250000;
 const BATCH_BYTES = 2_500_000;
 const MAX_SEND_BYTES = 85_000_000;
+// Excel/JSON are parsed fully in browser memory, so they get a hard size cap;
+// CSV/TSV/TXT stream row-by-row and have no size cap.
+const MAX_PARSE_BYTES = 100_000_000;
 
-type LargeResult = { id: string; limitInfo?: { totalRows: number; analyzedRows: number; truncated: boolean } };
+type Row = Record<string, unknown>;
+type LargeResult = { id: string; limitInfo?: { maxRows: number; totalRows: number; analyzedRows: number; truncated: boolean } };
 
-// Streams a big delimited file in the browser (nothing larger than ~2.5MB is ever sent),
-// forwards the first MAX_ROWS rows in batches, and counts every row in the file.
-async function uploadLargeFile(file: File, onProgress: (pct: number, status: string) => void): Promise<LargeResult> {
+// Streams a big delimited file in the browser.
+async function* papaRows(file: File): AsyncGenerator<Row> {
   const Papa = (await import("papaparse")).default;
+  const queue: Row[][] = [];
+  let done = false;
+  let failure: Error | null = null;
+  let notify: (() => void) | null = null;
+  const wake = () => { const n = notify; notify = null; n?.(); };
+  Papa.parse<Row>(file, {
+    header: true, skipEmptyLines: true, dynamicTyping: false,
+    delimiter: file.name.toLowerCase().endsWith(".tsv") ? "\t" : ",",
+    chunkSize: 4 * 1024 * 1024,
+    chunk: (res) => { queue.push(res.data); wake(); },
+    complete: () => { done = true; wake(); },
+    error: (err: Error) => { failure = err; done = true; wake(); },
+  });
+  for (;;) {
+    while (queue.length) { for (const row of queue.shift()!) yield row; }
+    if (done) break;
+    await new Promise<void>((r) => { notify = r; });
+  }
+  if (failure) throw failure;
+}
+
+// Reads a JSON file: an array of objects, or an object with a data/rows array.
+async function* jsonRows(file: File): AsyncGenerator<Row> {
+  const text = await file.text();
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { throw new Error("This JSON file could not be parsed."); }
+  const obj = parsed as Record<string, unknown>;
+  const arr = Array.isArray(parsed) ? parsed : Array.isArray(obj?.data) ? obj.data : Array.isArray(obj?.rows) ? obj.rows : null;
+  if (!arr) throw new Error("JSON must be an array of objects, or an object with a data/rows array.");
+  for (const item of arr) {
+    if (item && typeof item === "object" && !Array.isArray(item)) yield item as Row;
+  }
+}
+
+function excelCell(v: unknown): unknown {
+  if (v == null) return "";
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    if (Array.isArray(o.richText)) return (o.richText as { text?: string }[]).map((t) => t.text || "").join("");
+    if (o.result !== undefined && o.result !== null) return excelCell(o.result);
+    if (typeof o.text === "string") return o.text;
+    if (o.error) return "";
+    return "";
+  }
+  return v;
+}
+
+// Reads the first sheet of an Excel workbook in the browser (exceljs browser build).
+async function* excelRows(file: File): AsyncGenerator<Row> {
+  const mod = await import("exceljs");
+  const ExcelJS = (mod as unknown as { default?: typeof mod }).default || mod;
+  const wb = new ExcelJS.Workbook();
+  try {
+    await wb.xlsx.load(await file.arrayBuffer());
+  } catch {
+    throw new Error("This Excel file could not be read. If it is .xls (very old format), save it as .xlsx or CSV first.");
+  }
+  const ws = wb.worksheets[0];
+  if (!ws) throw new Error("No sheet found in this workbook.");
+  let headers: string[] = [];
+  const out: Row[] = [];
+  ws.eachRow((row, n) => {
+    const vals = (row.values || []) as unknown[];
+    if (n === 1) {
+      headers = vals.slice(1).map((v) => String(excelCell(v) ?? "").trim());
+      if (!headers.some(Boolean)) throw new Error("First row must contain column names.");
+      return;
+    }
+    const obj: Row = {};
+    let any = false;
+    for (let i = 0; i < headers.length; i++) {
+      if (!headers[i]) continue;
+      const v = excelCell(vals[i + 1]);
+      if (v !== "" && v != null) any = true;
+      obj[headers[i]] = v;
+    }
+    if (any) out.push(obj);
+  });
+  for (const row of out) yield row;
+}
+
+function rowSource(file: File, ext: string): AsyncGenerator<Row> {
+  if (ext === "json") return jsonRows(file);
+  if (ext === "xlsx" || ext === "xls") return excelRows(file);
+  return papaRows(file);
+}
+
+// Streams rows in the browser (nothing larger than ~2.5MB is ever sent),
+// forwards up to maxRows rows in batches, and counts every row in the file.
+async function uploadLargeFile(file: File, ext: string, maxRows: number, onProgress: (pct: number, status: string) => void): Promise<LargeResult> {
   const uploadId = crypto.randomUUID();
   const post = async (body: Record<string, unknown>) => {
     for (let attempt = 0; ; attempt++) {
@@ -41,7 +136,7 @@ async function uploadLargeFile(file: File, onProgress: (pct: number, status: str
       await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
     }
   };
-  let batch: Record<string, unknown>[] = [];
+  let batch: Row[] = [];
   let batchBytes = 0, sentBytes = 0, sentRows = 0, totalRows = 0, idx = 0, full = false;
   let chain: Promise<unknown> = Promise.resolve();
   let failure: unknown = null;
@@ -53,33 +148,25 @@ async function uploadLargeFile(file: File, onProgress: (pct: number, status: str
       if ((e as { full?: boolean }).full) full = true; else failure = e;
     });
   };
-  await new Promise<void>((resolve, reject) => {
-    Papa.parse<Record<string, unknown>>(file, {
-      header: true, skipEmptyLines: true, dynamicTyping: false,
-      delimiter: file.name.toLowerCase().endsWith(".tsv") ? "\t" : ",",
-      chunkSize: 4 * 1024 * 1024,
-      chunk: (res) => {
-        for (const row of res.data) {
-          totalRows++;
-          if (sentRows < MAX_ROWS && !full && sentBytes < MAX_SEND_BYTES) {
-            const len = JSON.stringify(row).length;
-            batch.push(row); batchBytes += len; sentBytes += len; sentRows++;
-            if (batchBytes >= BATCH_BYTES) flush();
-          }
-        }
-        const cursor = res.meta.cursor || 0;
-        onProgress(10 + Math.min(65, Math.round((cursor / file.size) * 65)), `Reading file... ${Math.min(100, Math.round((cursor / file.size) * 100))}% (${totalRows.toLocaleString()} rows)`);
-      },
-      complete: () => resolve(),
-      error: (err: Error) => reject(err),
-    });
-  });
+  let lastReported = 0;
+  for await (const row of rowSource(file, ext)) {
+    totalRows++;
+    if (sentRows < maxRows && !full && sentBytes < MAX_SEND_BYTES) {
+      const len = JSON.stringify(row).length;
+      batch.push(row); batchBytes += len; sentBytes += len; sentRows++;
+      if (batchBytes >= BATCH_BYTES) flush();
+    }
+    if (totalRows - lastReported >= 2000) {
+      lastReported = totalRows;
+      onProgress(10 + Math.min(65, Math.round((sentBytes / MAX_SEND_BYTES) * 65)), `Reading file... ${totalRows.toLocaleString()} rows`);
+    }
+  }
   flush();
   await chain;
   if (failure) throw failure;
   if (totalRows === 0) throw new Error("No data found in file");
   onProgress(85, "Analyzing & generating insights...");
-  return post({ op: "finish", fileName: file.name, sizeBytes: file.size, totalRows });
+  return post({ op: "finish", fileName: file.name, sizeBytes: file.size, totalRows, full: maxRows > DEFAULT_MAX_ROWS });
 }
 
 interface LandingViewProps {
@@ -91,6 +178,7 @@ export function LandingView({ onNavigate }: LandingViewProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState("");
+  const [fullData, setFullData] = useState(false);
   const { toast } = useToast();
 
   const handleUpload = useCallback(
@@ -102,8 +190,9 @@ export function LandingView({ onNavigate }: LandingViewProps) {
       try {
         const ext = file.name.split(".").pop()?.toLowerCase() || "";
         if (file.size > 3 * 1024 * 1024) {
-          if (!["csv", "tsv", "txt"].includes(ext)) throw new Error("Files over 3MB must be CSV, TSV or TXT (save big Excel/JSON files as CSV first).");
-          const data = await uploadLargeFile(file, (pct, status) => { setUploadProgress(pct); setUploadStatus(status); });
+          if (!["csv", "tsv", "txt", "json", "xlsx", "xls"].includes(ext)) throw new Error("Supported formats: CSV, TSV, TXT, JSON, XLSX.");
+          if (["json", "xlsx", "xls"].includes(ext) && file.size > MAX_PARSE_BYTES) throw new Error("Excel/JSON files up to 100MB are supported. For bigger files, save as CSV first.");
+          const data = await uploadLargeFile(file, ext, fullData ? FULL_MAX_ROWS : DEFAULT_MAX_ROWS, (pct, status) => { setUploadProgress(pct); setUploadStatus(status); });
           setUploadProgress(100);
           setUploadStatus("Analysis complete!");
           if (data.limitInfo?.truncated) {
@@ -169,7 +258,7 @@ export function LandingView({ onNavigate }: LandingViewProps) {
         }, 3000);
       }
     },
-    [onNavigate, toast]
+    [onNavigate, toast, fullData]
   );
 
   const onDrop = useCallback(
@@ -322,6 +411,16 @@ export function LandingView({ onNavigate }: LandingViewProps) {
                     </span>
                   ))}
                 </div>
+                <label className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={fullData}
+                    onChange={(e) => setFullData(e.target.checked)}
+                    className="accent-purple-500 w-3.5 h-3.5"
+                  />
+                  Full-data mode: analyze every row, not just the first 100K (slower, up to 250K rows)
+                </label>
+                <p className="mt-1 text-[10px] text-slate-600">Big CSV files stream without a size limit; big Excel/JSON up to 100MB.</p>
               </div>
             )}
 
