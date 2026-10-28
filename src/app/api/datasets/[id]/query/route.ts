@@ -48,14 +48,17 @@ export async function POST(
     const previousPlan = body.previousPlan ? validateQueryPlan(body.previousPlan, columnMetas) : null;
 
     let result;
-    try { result = await queryWithGemini(question, rows, columnMetas, history, previousPlan); } catch (error) { console.warn("Gemini fallback", error instanceof Error ? error.name : "unknown"); /* No provider body or secrets logged. */ }
-    if (!result) {
-      // Local follow-up: "aur North ka?" style questions re-run the previous plan with a matched filter value.
+    // Local follow-up first: "aur North ka?" style questions re-run the previous plan
+    // with a matched filter value. Fully local - nothing leaves the server.
+    if (previousPlan) {
       const followUp = resolveFollowUpLocally(question, columnMetas, rows, previousPlan);
       if (followUp) {
         const { executeQueryPlan } = await import("@/lib/analytics-engine");
         result = { ...executeQueryPlan(followUp, rows, columnMetas), engine: "local", interpretedPlan: followUp };
       }
+    }
+    if (!result) {
+      try { result = await queryWithGemini(question, rows, columnMetas, history); } catch (error) { console.warn("Gemini fallback", error instanceof Error ? error.name : "unknown"); /* No provider body or secrets logged. */ }
     }
     result ??= { ...processNLQuery(question, rows, profile, columnMetas), engine: "local" };
 
