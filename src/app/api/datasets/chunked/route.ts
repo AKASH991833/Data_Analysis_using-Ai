@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/db";
 import { ensureRowTables } from "@/lib/row-store";
-import { analyzeAndStoreChunked, MAX_ANALYZED_ROWS, UserError } from "@/lib/ingest";
+import { analyzeAndStoreChunked, MAX_ANALYZED_ROWS, FULL_DATA_MAX_ROWS, UserError } from "@/lib/ingest";
 
 export const maxDuration = 60;
 
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   try {
     const raw = await req.text();
     if (raw.length > MAX_BATCH_BYTES + 5000) return NextResponse.json({ error: "Batch too large" }, { status: 413 });
-    const body = JSON.parse(raw) as { op?: string; uploadId?: string; idx?: number; rows?: unknown; fileName?: string; sizeBytes?: number; totalRows?: number };
+    const body = JSON.parse(raw) as { op?: string; uploadId?: string; idx?: number; rows?: unknown; fileName?: string; sizeBytes?: number; totalRows?: number; full?: boolean };
     const uploadId = body.uploadId || "";
     if (!ID_RE.test(uploadId)) return NextResponse.json({ error: "Invalid upload id" }, { status: 400 });
     await ensureRowTables();
@@ -33,17 +33,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.op === "finish") {
+      const cap = body.full === true ? FULL_DATA_MAX_ROWS : MAX_ANALYZED_ROWS;
       const [res] = await pool.query("SELECT data FROM upload_staging WHERE upload_id = ? ORDER BY idx", [uploadId]);
       let rows: Record<string, unknown>[] = [];
       for (const r of res as { data: unknown }[]) {
         const part = (typeof r.data === "string" ? JSON.parse(r.data) : r.data) as Record<string, unknown>[];
         rows = rows.concat(part);
-        if (rows.length >= MAX_ANALYZED_ROWS) break;
+        if (rows.length >= cap) break;
       }
-      rows = rows.slice(0, MAX_ANALYZED_ROWS);
+      rows = rows.slice(0, cap);
       const fileName = String(body.fileName || "upload.csv").slice(0, 200);
       const totalRows = Math.max(Number(body.totalRows) || rows.length, rows.length);
-      const out = await analyzeAndStoreChunked({ rows, fileName, sizeBytes: Math.min(Number(body.sizeBytes) || 0, 2_000_000_000), totalRows });
+      const out = await analyzeAndStoreChunked({ rows, fileName, sizeBytes: Math.min(Number(body.sizeBytes) || 0, 2_000_000_000), totalRows, maxRows: cap });
       await pool.query("DELETE FROM upload_staging WHERE upload_id = ?", [uploadId]);
       return NextResponse.json(out);
     }
