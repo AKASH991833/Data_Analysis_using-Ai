@@ -11,6 +11,7 @@ import {
   X,
   AlertTriangle,
   Loader2,
+  Pencil,
 } from "lucide-react";
 import type { ColumnMeta } from "@/db/schema";
 import { cn } from "@/lib/utils";
@@ -38,15 +39,53 @@ export function DataTableTab({ datasetId, columns, totalRows }: DataTableTabProp
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [showFilters, setShowFilters] = useState(false);
   const [columnFilters, setColumnFilters] = useState<ColumnFilter[]>([]);
+  const [rowIndex, setRowIndex] = useState<WeakMap<Record<string, unknown>, number>>(new WeakMap());
+  const [editing, setEditing] = useState<{ row: Record<string, unknown>; column: string } | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editNote, setEditNote] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.resolve().then(() => setLoadingRows(true));
     fetch(`/api/datasets/${datasetId}/rows`)
       .then((r) => r.json())
-      .then((res) => setData(res.rows || []))
+      .then((res) => {
+        const rows: Record<string, unknown>[] = res.rows || [];
+        const map = new WeakMap<Record<string, unknown>, number>();
+        rows.forEach((row, i) => map.set(row, i));
+        setRowIndex(map);
+        setData(rows);
+      })
       .catch(() => {})
       .finally(() => setLoadingRows(false));
   }, [datasetId]);
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    const idx = rowIndex.get(editing.row);
+    if (idx === undefined) { setEditing(null); return; }
+    setSaving(true);
+    setEditNote(null);
+    try {
+      const res = await fetch(`/api/datasets/${datasetId}/rows`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rowIndex: idx, column: editing.column, value: editValue }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEditNote(json.error || "Could not save the edit.");
+        return;
+      }
+      setData((prev) => { const next = [...prev]; next[idx] = json.row; return next; });
+      setEditNote("Saved. Charts recompute from this data on their next load; stored KPI summaries update on re-upload.");
+      setEditing(null);
+    } catch {
+      setEditNote("Network error while saving.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const columnNames = useMemo(
     () => columns.map((c) => c.name),
@@ -200,6 +239,9 @@ export function DataTableTab({ datasetId, columns, totalRows }: DataTableTabProp
               </span>
             )}
           </button>
+          <span className="hidden md:flex items-center gap-1 text-[10px] text-slate-500">
+            <Pencil className="w-3 h-3" /> Click any cell to edit
+          </span>
           <span className="text-xs text-slate-400">
             {sorted.length.toLocaleString()} / {data.length.toLocaleString()} rows
           </span>
@@ -213,6 +255,14 @@ export function DataTableTab({ datasetId, columns, totalRows }: DataTableTabProp
         </div>
       </div>
 
+      {editNote && (
+        <div className="flex items-start gap-2 px-4 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300">
+          <Pencil className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span>{editNote}</span>
+          <button onClick={() => setEditNote(null)} className="ml-auto text-slate-500 hover:text-white"><X className="w-3 h-3" /></button>
+        </div>
+      )}
+
       {/* Truncation warning */}
       {rowsTruncated && (
         <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400">
@@ -222,7 +272,7 @@ export function DataTableTab({ datasetId, columns, totalRows }: DataTableTabProp
             {totalRows!.toLocaleString()} total rows — only first {data.length.toLocaleString()} were loaded.
             <br />
             <span className="text-amber-500/70">
-              Max analysis limit: 100,000 rows (Excel pivot standard). Upload a smaller file or upgrade for unlimited rows.
+              Default analysis limit is 100,000 rows. Re-upload with Full-data mode ticked to analyze up to 250,000 rows.
             </span>
           </div>
         </div>
@@ -295,14 +345,40 @@ export function DataTableTab({ datasetId, columns, totalRows }: DataTableTabProp
                   <td className="px-3 py-2.5 text-slate-600 font-mono">
                     {page * PAGE_SIZE + i + 1}
                   </td>
-                  {columnNames.map((col) => (
-                    <td
-                      key={col}
-                      className="px-3 py-2.5 text-slate-300 max-w-[200px] truncate font-mono"
-                    >
-                      {String(row[col] ?? "—")}
-                    </td>
-                  ))}
+                  {columnNames.map((col) => {
+                    const isEditing = editing?.row === row && editing?.column === col;
+                    return (
+                      <td
+                        key={col}
+                        onClick={() => {
+                          if (saving) return;
+                          setEditing({ row, column: col });
+                          setEditValue(String(row[col] ?? ""));
+                          setEditNote(null);
+                        }}
+                        className="px-3 py-2.5 text-slate-300 max-w-[200px] truncate font-mono cursor-text hover:bg-blue-500/5"
+                        title="Click to edit"
+                      >
+                        {isEditing ? (
+                          <input
+                            autoFocus
+                            value={editValue}
+                            disabled={saving}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveEdit();
+                              if (e.key === "Escape") setEditing(null);
+                            }}
+                            onBlur={saveEdit}
+                            className="w-full px-1.5 py-1 rounded bg-white/10 border border-blue-500/40 text-xs text-white focus:outline-none"
+                          />
+                        ) : (
+                          String(row[col] ?? "—")
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
