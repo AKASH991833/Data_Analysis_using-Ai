@@ -5,7 +5,7 @@ import { toPng } from "html-to-image";
 import {
   TrendingUp, TrendingDown, DollarSign, BarChart3, Layers,
   Shield, Database, Zap, Sparkles, Globe, Activity, Users,
-  Brain, Download, Edit3, Save, X, Plus, Layout, Loader2,
+  Brain, Download, FileText, Edit3, Save, X, Plus, Layout, Loader2,
   Eye, EyeOff, ChevronRight, ChevronDown, Target, LineChart,
   PieChart, AlertTriangle, CheckCircle, Clock, ArrowUpRight,
   Filter, Gauge, Sigma, Minus,
@@ -253,6 +253,11 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
   // geoDataInline populated later after loading check
   let geoDataInline: { name: string; value: number }[] = [];
 
+  const exportPdf = useCallback(() => {
+    // Print-to-PDF of the live dashboard: print CSS isolates the board and keeps colors.
+    window.print();
+  }, []);
+
   const exportDashboard = useCallback(async () => {
     if (!dashRef.current) return;
     try {
@@ -348,7 +353,12 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
           ><Edit3 className="w-3.5 h-3.5" /> Customize</button>
           <button onClick={exportDashboard}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-slate-300 hover:bg-white/10 transition-all"
-          ><Download className="w-3.5 h-3.5" /> Export</button>
+            title="Download the dashboard as a PNG image"
+          ><Download className="w-3.5 h-3.5" /> PNG</button>
+          <button onClick={exportPdf}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-slate-300 hover:bg-white/10 transition-all"
+            title="Save or print the dashboard as a PDF"
+          ><FileText className="w-3.5 h-3.5" /> PDF</button>
           <ThemeToggle />
         </div>
       </div>
@@ -387,7 +397,7 @@ export function DashboardTab({ datasetId }: DashboardTabProps) {
       )}
 
       {/* ── DASHBOARD CONTENT ── */}
-      <div ref={dashRef} className="space-y-6">
+      <div ref={dashRef} id="dashboard-print-root" className="space-y-6">
 
         {/* ── EDIT MODE BAR ── */}
         {editMode && (
@@ -771,4 +781,4 @@ function DistBar({ label, count, total, color }: { label: string; count: number;
       <span className="text-[10px] text-slate-500 font-mono w-8 text-right">{count}</span>
     </div>
   );
-            }
+}
