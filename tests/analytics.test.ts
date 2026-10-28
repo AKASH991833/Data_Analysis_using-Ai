@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseNumeric, profileData, cleanData, processNLQuery, generateKPIs, generateInsights, generateChartRecommendations } from "../src/lib/analytics-engine";
-import { validateQueryPlan, queryWithGemini } from "../src/lib/gemini-query";
+import { validateQueryPlan, queryWithGemini, resolveFollowUpLocally } from "../src/lib/gemini-query";
 const rows = [{ id: 1, product: "A", region: "North", revenue: 100, date: "2026-01-01" }, { id: 99, product: "B", region: "South", revenue: 200, date: "2026-02-01" }];
 const names = Object.keys(rows[0]);
 const { profile, columnMetas } = profileData(rows,names);
@@ -41,3 +41,29 @@ test("grouped sum and comparison do not silently run global total",()=>{for(cons
 test("column paid is not an identifier",()=>assert.notEqual(profileData([{paid:100},{paid:200}],["paid"]).columnMetas[0].semanticType,"identifier"));
 test("negative status is not a completed record",()=>{const r=[{status:"not completed"},{status:"Completed"}];const p=profileData(r,["status"]);assert.equal(generateKPIs(r,p.profile,p.columnMetas,"Sales").find(k=>k.name==="Completion Rate")?.value,"50.0%");});
 test("monthly chart aggregates totals not averages",()=>{const r=[{date:"2026-01-01",revenue:100},{date:"2026-01-02",revenue:200},{date:"2026-02-01",revenue:50},{date:"2026-03-01",revenue:60}];const p=profileData(r,["date","revenue"]);assert.equal(generateChartRecommendations(r,p.profile,p.columnMetas).find(c=>c.type==="line")?.data[0].revenue,300);});
+
+test("Gemini payload excludes history answers and previousPlan",async()=>{
+  process.env.GEMINI_ENABLED="true";process.env.GEMINI_API_KEY="test-placeholder";
+  const original=globalThis.fetch;
+  let sent="";
+  globalThis.fetch=async (_url,options)=>{sent=String(options?.body);return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({operation:"sum",column:"revenue"})}]}}]});};
+  try{
+    const history=[{question:"total revenue in North?",answer:"The sum revenue (region = North) is 100."}];
+    const previousPlan={operation:"sum",column:"revenue",filters:[{column:"region",value:"North"}]};
+    await queryWithGemini("aur South ka?",rows,columnMetas,history,previousPlan as never);
+    assert.ok(sent.includes("total revenue in North?"),"prior question should be sent as context");
+    assert.ok(!sent.includes("is 100"),"history answers must never be sent");
+    assert.ok(!sent.includes("previousPlan"),"previousPlan must never be sent");
+    assert.ok(!sent.includes('"value":"North"'),"filter values from plans must never be sent");
+  }finally{globalThis.fetch=original;delete process.env.GEMINI_API_KEY;process.env.GEMINI_ENABLED="false";}
+});
+
+test("local follow-up resolver keeps operation and swaps filter value",()=>{
+  const fx=[{region:"North",revenue:100},{region:"South",revenue:200},{region:"North",revenue:300}];
+  const { columnMetas: fxCols } = profileData(fx,Object.keys(fx[0]));
+  const previousPlan={operation:"sum",column:"revenue",filters:[{column:"region",value:"North"}]};
+  const plan=resolveFollowUpLocally("aur South ka?",fxCols,fx,previousPlan as never);
+  assert.equal(plan?.operation,"sum");
+  assert.equal(plan?.column,"revenue");
+  assert.ok(plan?.filters?.some(f=>f.column==="region"&&String(f.value).toLowerCase()==="south"));
+});
