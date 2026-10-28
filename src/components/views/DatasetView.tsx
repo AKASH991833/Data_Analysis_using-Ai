@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   PanelRight,
   Grid3x3,
+  ArrowLeftRight,
 } from "lucide-react";
 import { OverviewTab } from "../tabs/OverviewTab";
 import { ProfileTab } from "../tabs/ProfileTab";
@@ -24,6 +25,7 @@ import { NLQueryTab } from "../tabs/NLQueryTab";
 import { DataTableTab } from "../tabs/DataTableTab";
 import { DashboardTab } from "../tabs/DashboardTab";
 import { PivotTab } from "../tabs/PivotTab";
+import { CompareTab } from "../tabs/CompareTab";
 import type {
   ColumnMeta,
   DataProfile,
@@ -63,6 +65,7 @@ type TabType =
   | "cleaning"
   | "insights"
   | "query"
+  | "compare"
   | "data";
 
 const tabs: { key: TabType; label: string; icon: React.ElementType }[] = [
@@ -73,6 +76,7 @@ const tabs: { key: TabType; label: string; icon: React.ElementType }[] = [
   { key: "cleaning", label: "Cleaning", icon: Shield },
   { key: "insights", label: "Insights", icon: Sparkles },
   { key: "query", label: "Ask AI", icon: MessageSquare },
+  { key: "compare", label: "Compare", icon: ArrowLeftRight },
   { key: "data", label: "Data", icon: Table2 },
 ];
 
@@ -186,6 +190,9 @@ export function DatasetView({ datasetId, onNavigate }: DatasetViewProps) {
         )}
         {activeTab === "query" && (
           <NLQueryTab datasetId={dataset.id} />
+        )}
+        {activeTab === "compare" && (
+          <CompareTab datasetId={dataset.id} datasetName={dataset.name} />
         )}
         {activeTab === "data" && (
           <DataTableTab
