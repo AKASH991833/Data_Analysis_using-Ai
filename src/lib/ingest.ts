@@ -4,10 +4,13 @@ import { v4 as uuidv4 } from "uuid";
 import { saveRows } from "@/lib/row-store";
 
 export const MAX_ANALYZED_ROWS = 100000;
+// Full-data mode (user opt-in at upload). Bounded so the free database and the
+// 60s analysis window stay healthy; beyond this the file is truncated honestly.
+export const FULL_DATA_MAX_ROWS = 250000;
 
 /** Profile, clean, summarise and store rows in the chunk table (used by large streamed uploads). */
-export async function analyzeAndStoreChunked(opts: { rows: Record<string, unknown>[]; fileName: string; sizeBytes: number; totalRows: number }) {
-  const { rows, fileName, sizeBytes, totalRows } = opts;
+export async function analyzeAndStoreChunked(opts: { rows: Record<string, unknown>[]; fileName: string; sizeBytes: number; totalRows: number; maxRows?: number }) {
+  const { rows, fileName, sizeBytes, totalRows, maxRows = MAX_ANALYZED_ROWS } = opts;
   const fileType = fileName.split(".").pop()?.toLowerCase() || "csv";
   const columns = [...new Set(rows.flatMap((r) => Object.keys(r)))];
   if (columns.some((c) => ["__proto__", "prototype", "constructor"].includes(c))) throw new UserError("Unsupported column name");
@@ -32,7 +35,7 @@ export async function analyzeAndStoreChunked(opts: { rows: Record<string, unknow
   return {
     id, name: fileName.replace(/\.[^.]+$/, ""), rowCount: totalRows, columnCount: columns.length,
     domain, domainConfidence: confidence, status: "analyzed",
-    limitInfo: { maxRows: MAX_ANALYZED_ROWS, totalRows, analyzedRows: rows.length, truncated: totalRows > rows.length },
+    limitInfo: { maxRows, totalRows, analyzedRows: rows.length, truncated: totalRows > rows.length },
   };
 }
 
